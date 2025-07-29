@@ -1,0 +1,69 @@
+{
+  "name": "elmowafy-server",
+  "version": "1.0.0",
+  "description": "Secure backend for the Elmowafy Travel Platform AI Assistant",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "cross-env NODE_ENV=production node index.js",
+    "dev": "cross-env NODE_ENV=development nodemon index.js",
+    "test": "cross-env NODE_ENV=test jest --watch --verbose",
+    "lint": "eslint . --ext .js",
+    "format": "prettier --write .",
+    "prepare": "husky install",
+    "docker:build": "docker build -t elmowafy-backend .",
+    "docker:run": "docker run -p 5000:5000 -d elmowafy-backend"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@google/generative-ai": "^0.24.1",
+    "axios": "^1.11.0",
+    "bcryptjs": "^2.4.3",
+    "body-parser": "^2.2.0",
+    "compression": "^1.7.4",
+    "cookie-parser": "^1.4.6",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.0",
+    "express": "^4.18.2",
+    "express-mongo-sanitize": "^2.2.0",
+    "express-rate-limit": "^6.8.1",
+    "express-validator": "^6.15.0",
+    "helmet": "^7.1.0",
+    "hpp": "^0.2.3",
+    "http-proxy-middleware": "^2.0.6",
+    "jsonwebtoken": "^9.0.2",
+    "mongoose": "^8.16.4",
+    "morgan": "^1.10.0",
+    "multer": "^2.0.2",
+    "nodemailer": "^6.9.10",
+    "pino-http": "^8.2.1",
+    "rotating-file-stream": "^3.1.1",
+    "socket.io": "^4.8.1",
+    "validator": "^13.11.0",
+    "winston": "^3.11.0",
+    "xss-clean": "^0.1.1"
+  },
+  "devDependencies": {
+    "cross-env": "^10.0.0",
+    "eslint": "^8.56.0",
+    "eslint-config-prettier": "^9.1.0",
+    "eslint-plugin-node": "^11.1.0",
+    "husky": "^9.0.11",
+    "jest": "^29.7.0",
+    "lint-staged": "^15.2.2",
+    "nodemon": "^3.0.2",
+    "prettier": "^3.1.1",
+    "supertest": "^6.3.3"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
+  },
+  "lint-staged": {
+    "**/*.js": [
+      "eslint --fix",
+      "prettier --write"
+    ]
+  }
+}

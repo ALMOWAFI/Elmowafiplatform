@@ -1,0 +1,161 @@
+{
+  "name": "Elmowafy Family Platform",
+  "short_name": "Elmowafy",
+  "description": "AI-powered family memory management and travel platform",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#2563eb",
+  "orientation": "portrait-primary",
+  "scope": "/",
+  "lang": "en",
+  "dir": "ltr",
+  "categories": ["lifestyle", "photo", "travel", "family"],
+  "icons": [
+    {
+      "src": "/favicon.ico",
+      "sizes": "64x64 32x32 24x24 16x16",
+      "type": "image/x-icon"
+    },
+    {
+      "src": "/icon-192.png",
+      "type": "image/png",
+      "sizes": "192x192",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/icon-512.png",
+      "type": "image/png",
+      "sizes": "512x512",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/icon-192.png",
+      "type": "image/png",
+      "sizes": "192x192",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512.png",
+      "type": "image/png",
+      "sizes": "512x512",
+      "purpose": "any"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Upload Memory",
+      "short_name": "Upload",
+      "description": "Quickly upload a new family memory",
+      "url": "/upload",
+      "icons": [
+        {
+          "src": "/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "Family Tree",
+      "short_name": "Tree",
+      "description": "View your family tree",
+      "url": "/family",
+      "icons": [
+        {
+          "src": "/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "Travel Planner",
+      "short_name": "Travel",
+      "description": "Plan your next family trip",
+      "url": "/travel",
+      "icons": [
+        {
+          "src": "/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "/screenshot-mobile.png",
+      "type": "image/png",
+      "sizes": "540x720",
+      "form_factor": "narrow"
+    },
+    {
+      "src": "/screenshot-desktop.png",
+      "type": "image/png",
+      "sizes": "1280x720",
+      "form_factor": "wide"
+    }
+  ],
+  "features": [
+    {
+      "name": "Cross Platform",
+      "description": "Works on mobile, tablet, and desktop"
+    },
+    {
+      "name": "Offline Support",
+      "description": "View memories even when offline"
+    },
+    {
+      "name": "Real-time Updates",
+      "description": "Get instant notifications for family activities"
+    },
+    {
+      "name": "AI-Powered",
+      "description": "Smart photo analysis and travel recommendations"
+    }
+  ],
+  "related_applications": [
+    {
+      "platform": "webapp",
+      "url": "https://elmowafy-platform.netlify.app/manifest.json"
+    }
+  ],
+  "prefer_related_applications": false,
+  "edge_side_panel": {
+    "preferred_width": 400
+  },
+  "launch_handler": {
+    "client_mode": "navigate-existing"
+  },
+  "handle_links": "preferred",
+  "capture_links": "existing-client-navigate",
+  "file_handlers": [
+    {
+      "action": "/upload",
+      "accept": {
+        "image/*": [".jpg", ".jpeg", ".png", ".gif", ".webp"],
+        "video/*": [".mp4", ".mov", ".avi"]
+      }
+    }
+  ],
+  "protocol_handlers": [
+    {
+      "protocol": "web+elmowafy",
+      "url": "/share?url=%s"
+    }
+  ],
+  "share_target": {
+    "action": "/upload",
+    "method": "POST",
+    "enctype": "multipart/form-data",
+    "params": {
+      "title": "title",
+      "text": "description",
+      "url": "url",
+      "files": [
+        {
+          "name": "photos",
+          "accept": ["image/*", "video/*"]
+        }
+      ]
+    }
+  }
+}

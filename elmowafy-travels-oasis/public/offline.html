@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Offline - Elmowafy Family Platform</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            text-align: center;
+            padding: 20px;
+        }
+
+        .offline-container {
+            max-width: 400px;
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 40px 30px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .offline-icon {
+            width: 80px;
+            height: 80px;
+            margin: 0 auto 30px;
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 40px;
+        }
+
+        h1 {
+            font-size: 24px;
+            margin-bottom: 10px;
+            font-weight: 600;
+        }
+
+        .subtitle {
+            font-size: 16px;
+            opacity: 0.8;
+            margin-bottom: 30px;
+            line-height: 1.5;
+        }
+
+        .features {
+            text-align: left;
+            margin: 30px 0;
+        }
+
+        .feature {
+            display: flex;
+            align-items: center;
+            margin-bottom: 15px;
+            font-size: 14px;
+            opacity: 0.9;
+        }
+
+        .feature-icon {
+            width: 20px;
+            height: 20px;
+            margin-right: 12px;
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            flex-shrink: 0;
+        }
+
+        .retry-button {
+            background: rgba(255, 255, 255, 0.2);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            color: white;
+            padding: 12px 30px;
+            border-radius: 25px;
+            font-size: 16px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin-top: 20px;
+        }
+
+        .retry-button:hover {
+            background: rgba(255, 255, 255, 0.3);
+            transform: translateY(-2px);
+        }
+
+        .connection-status {
+            margin-top: 20px;
+            padding: 10px;
+            border-radius: 10px;
+            background: rgba(255, 255, 255, 0.1);
+            font-size: 14px;
+        }
+
+        .status-dot {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            margin-right: 8px;
+            animation: pulse 2s infinite;
+        }
+
+        .offline {
+            background: #ff6b6b;
+        }
+
+        .online {
+            background: #51cf66;
+        }
+
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+
+        .cached-data {
+            margin-top: 30px;
+            padding: 15px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+            font-size: 14px;
+        }
+
+        .cached-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+            padding: 5px 0;
+        }
+
+        .cached-item:last-child {
+            margin-bottom: 0;
+        }
+
+        @media (max-width: 480px) {
+            .offline-container {
+                padding: 30px 20px;
+                margin: 10px;
+            }
+            
+            h1 {
+                font-size: 20px;
+            }
+            
+            .subtitle {
+                font-size: 14px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="offline-container">
+        <div class="offline-icon">
+            📱
+        </div>
+        
+        <h1>You're Offline</h1>
+        <p class="subtitle">Don't worry! Your family memories are still here. Some features are available offline.</p>
+        
+        <div class="features">
+            <div class="feature">
+                <div class="feature-icon">👁️</div>
+                <span>View cached family memories</span>
+            </div>
+            <div class="feature">
+                <div class="feature-icon">🌳</div>
+                <span>Browse your family tree</span>
+            </div>
+            <div class="feature">
+                <div class="feature-icon">📋</div>
+                <span>Access saved travel plans</span>
+            </div>
+            <div class="feature">
+                <div class="feature-icon">💾</div>
+                <span>Changes sync when online</span>
+            </div>
+        </div>
+        
+        <div class="connection-status">
+            <span class="status-dot offline" id="statusDot"></span>
+            <span id="connectionText">Checking connection...</span>
+        </div>
+        
+        <button class="retry-button" onclick="retryConnection()">
+            Try Again
+        </button>
+        
+        <div class="cached-data" id="cachedData" style="display: none;">
+            <h3 style="margin-bottom: 15px; font-size: 16px;">Available Offline:</h3>
+            <div class="cached-item">
+                <span>Recent Memories</span>
+                <span id="memoriesCount">-</span>
+            </div>
+            <div class="cached-item">
+                <span>Family Members</span>
+                <span id="familyCount">-</span>
+            </div>
+            <div class="cached-item">
+                <span>Travel Plans</span>
+                <span id="travelCount">-</span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let isOnline = false;
+        
+        function updateConnectionStatus() {
+            const statusDot = document.getElementById('statusDot');
+            const connectionText = document.getElementById('connectionText');
+            
+            if (navigator.onLine) {
+                statusDot.className = 'status-dot online';
+                connectionText.textContent = 'Connection restored!';
+                isOnline = true;
+                
+                // Auto-retry after a short delay when online
+                setTimeout(() => {
+                    window.location.reload();
+                }, 2000);
+            } else {
+                statusDot.className = 'status-dot offline';
+                connectionText.textContent = 'No internet connection';
+                isOnline = false;
+            }
+        }
+        
+        function retryConnection() {
+            if (navigator.onLine) {
+                window.location.reload();
+            } else {
+                // Provide feedback that we're still offline
+                const button = document.querySelector('.retry-button');
+                const originalText = button.textContent;
+                button.textContent = 'Still Offline...';
+                button.style.background = 'rgba(255, 107, 107, 0.3)';
+                
+                setTimeout(() => {
+                    button.textContent = originalText;
+                    button.style.background = 'rgba(255, 255, 255, 0.2)';
+                }, 2000);
+            }
+        }
+        
+        async function loadCachedData() {
+            try {
+                // Check what's available in cache
+                if ('caches' in window) {
+                    const cacheNames = await caches.keys();
+                    const cachedDataDiv = document.getElementById('cachedData');
+                    
+                    if (cacheNames.length > 0) {
+                        cachedDataDiv.style.display = 'block';
+                        
+                        // Count cached resources (simplified)
+                        let totalCached = 0;
+                        for (const cacheName of cacheNames) {
+                            const cache = await caches.open(cacheName);
+                            const keys = await cache.keys();
+                            totalCached += keys.length;
+                        }
+                        
+                        // Update counts (these would be more accurate with proper cache analysis)
+                        document.getElementById('memoriesCount').textContent = '~20';
+                        document.getElementById('familyCount').textContent = 'All';
+                        document.getElementById('travelCount').textContent = '3';
+                    }
+                }
+            } catch (error) {
+                console.log('Could not access cache data');
+            }
+        }
+        
+        // Initialize
+        updateConnectionStatus();
+        loadCachedData();
+        
+        // Listen for connection changes
+        window.addEventListener('online', updateConnectionStatus);
+        window.addEventListener('offline', updateConnectionStatus);
+        
+        // Check connection periodically
+        setInterval(() => {
+            fetch('/health', { method: 'HEAD', cache: 'no-cache' })
+                .then(() => {
+                    if (!isOnline) {
+                        updateConnectionStatus();
+                    }
+                })
+                .catch(() => {
+                    // Still offline
+                });
+        }, 5000);
+        
+        // Register service worker message listener
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.addEventListener('message', (event) => {
+                if (event.data.type === 'CACHE_UPDATED') {
+                    loadCachedData();
+                }
+            });
+        }
+    </script>
+</body>
+</html>

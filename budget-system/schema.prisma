@@ -1,0 +1,143 @@
+datasource db {
+  provider = "postgresql"
+  // Wasp requires that the url is set to the DATABASE_URL environment variable.
+  url      = env("DATABASE_URL")
+}
+
+// Wasp requires the `prisma-client-js` generator to be present.
+generator client {
+  provider = "prisma-client-js"
+}
+
+// --- Models based on PRD ---
+
+model User {
+  id              Int      @id @default(autoincrement()) // Using Int ID as per PRD and Wasp convention
+  email           String   @unique // Add explicit email field
+  displayName     String?           // Optional display name
+  avatarUrl       String?           // Optional avatar URL
+  // Wasp internally manages auth-related fields like password hash, verification status etc.
+  // We don't need emailVerified or password fields here unless customizing Wasp's auth flow.
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  lastLoginAt     DateTime? // Optional: Track last login
+
+  // Relations
+  budgetProfile   BudgetProfile? @relation("OwnedProfile")
+  memberProfiles  UserBudgetProfile[]
+  // notifications   Notification[] // Deferred to later phase
+  sentInvitations     Invitation[] @relation("SentInvitations")
+  acceptedInvitations Invitation[] @relation("AcceptedInvitations")
+}
+
+model BudgetProfile {
+  id          Int      @id @default(autoincrement())
+  name        String
+  description String?
+  currency    String   @default("USD")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  owner       User     @relation("OwnedProfile", fields: [ownerId], references: [id])
+  ownerId     Int      @unique  // One-to-one relation with owner
+  members     UserBudgetProfile[]
+  envelopes   Envelope[]
+  transactions Transaction[]
+  invitations Invitation[] // Relation to invitations sent for this profile
+}
+
+model UserBudgetProfile {
+  id              Int      @id @default(autoincrement())
+  userId          Int
+  budgetProfileId Int
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  budgetProfile   BudgetProfile @relation(fields: [budgetProfileId], references: [id], onDelete: Cascade)
+  role            String   // Changed from permissions: String - Represents the user's role (e.g., OWNER, ADMIN, MEMBER)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([userId, budgetProfileId])
+  @@index([userId])
+  @@index([budgetProfileId])
+}
+
+model Envelope {
+  id              Int           @id @default(autoincrement())
+  name            String
+  budgetProfile   BudgetProfile @relation(fields: [budgetProfileId], references: [id], onDelete: Cascade)
+  budgetProfileId Int
+  amount          Float         @default(0)
+  spent           Float         @default(0)
+  category        String
+  color           String?
+  icon            String?
+  isArchived      Boolean       @default(false)
+  transactions    Transaction[]
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@index([budgetProfileId])
+}
+
+// Define the enum for transaction types
+enum TransactionType {
+  EXPENSE
+  INCOME
+  TRANSFER // Keep TRANSFER even if not fully used yet
+}
+
+model Transaction {
+  id              Int           @id @default(autoincrement())
+  description     String
+  amount          Float
+  date            DateTime
+  type            TransactionType // INCOME or EXPENSE
+
+  // Relationships
+  budgetProfile   BudgetProfile @relation(fields: [budgetProfileId], references: [id], onDelete: Cascade)
+  budgetProfileId Int
+
+  envelope        Envelope?     @relation(fields: [envelopeId], references: [id], onDelete: SetNull) // Made optional, SetNull on delete
+  envelopeId      Int?          // Made optional
+
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@index([budgetProfileId])
+  @@index([envelopeId])
+}
+
+enum InvitationStatus {
+  PENDING
+  ACCEPTED
+  EXPIRED
+  DECLINED // Optional
+}
+
+model Invitation {
+  id              String      @id @default(uuid())
+  email           String      // Email address invited
+  budgetProfileId Int         // ID of the profile they are invited to
+  budgetProfile   BudgetProfile @relation(fields: [budgetProfileId], references: [id], onDelete: Cascade)
+  role            String      // Role assigned upon acceptance (e.g., MEMBER, ADMIN)
+  token           String      @unique // Secure, unique token for the invitation link
+  status          InvitationStatus @default(PENDING)
+  expiresAt       DateTime    // When the invitation expires
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  invitedByUserId Int?        // Optional: ID of the user who sent the invite
+  invitedByUser   User?       @relation("SentInvitations", fields: [invitedByUserId], references: [id], onDelete: SetNull)
+
+  acceptedByUserId Int?       // Optional: ID of the user who accepted the invite
+  acceptedByUser  User?       @relation("AcceptedInvitations", fields: [acceptedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([email])
+  @@index([budgetProfileId])
+  @@index([status])
+}
+
+// --- Models deferred to later phases ---
+// model Report { ... }
+// model Notification { ... }

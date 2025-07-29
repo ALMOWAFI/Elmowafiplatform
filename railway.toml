@@ -1,0 +1,47 @@
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+healthcheckPath = "/api/health"
+healthcheckTimeout = 30
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3
+
+[environments.production]
+[environments.production.variables]
+ENVIRONMENT = "production"
+PYTHONPATH = "/app"
+JWT_SECRET_KEY = "${{JWT_SECRET_KEY}}"
+DATABASE_URL = "${{DATABASE_URL}}"
+REDIS_URL = "${{REDIS_URL}}"
+CORS_ORIGINS = "${{CORS_ORIGINS}}"
+AZURE_AI_ENDPOINT = "${{AZURE_AI_ENDPOINT}}"
+AZURE_AI_KEY = "${{AZURE_AI_KEY}}"
+FILE_UPLOAD_PATH = "/app/uploads"
+MAX_FILE_SIZE = "10485760"
+RATE_LIMIT_ENABLED = "true"
+LOG_LEVEL = "INFO"
+PORT = "${{PORT}}"
+
+[environments.staging]
+[environments.staging.variables]
+ENVIRONMENT = "staging"
+PYTHONPATH = "/app"
+JWT_SECRET_KEY = "${{STAGING_JWT_SECRET_KEY}}"
+DATABASE_URL = "${{STAGING_DATABASE_URL}}"
+LOG_LEVEL = "DEBUG"
+PORT = "${{PORT}}"
+
+# Services configuration
+[[services]]
+name = "elmowafiplatform-api"
+source = "."
+
+[services.build]
+builder = "dockerfile"
+dockerfilePath = "Dockerfile"
+
+[services.variables]
+ENVIRONMENT = "production"
+PORT = 8000 

@@ -1,0 +1,288 @@
+'use client';
+
+import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { useAIAssistant, type AIMessage } from '@/hooks/useAIAssistant';
+import { Send, X, Minimize2, Bot, Loader2 } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { cn } from '@/lib/utils';
+import { usePreferences } from '@/contexts/PreferencesContext';
+
+interface ChatMessageProps {
+  message: AIMessage;
+  isLast: boolean;
+  isLoading: boolean;
+}
+
+interface ChatInterfaceProps {
+  initialMessage?: string;
+  onClose?: () => void;
+  className?: string;
+  isMinimized?: boolean;
+  onToggleMinimize?: () => void;
+  conversationId?: string;
+}
+
+const ChatMessage = ({ message, isLast, isLoading }: ChatMessageProps) => {
+  const { role, content, timestamp } = message;
+  const isUser = role === 'user';
+  const isSystem = role === 'system';
+
+  return (
+    <div
+      className={cn(
+        'flex items-start gap-3',
+        isUser ? 'justify-end' : 'justify-start',
+        isSystem && 'opacity-75'
+      )}
+    >
+      {!isUser && (
+        <Avatar className="h-8 w-8 bg-blue-500">
+          <AvatarFallback>AI</AvatarFallback>
+        </Avatar>
+      )}
+      <div
+        className={cn(
+          'rounded-lg px-4 py-2 max-w-[80%]',
+          isUser
+            ? 'bg-blue-500 text-white rounded-br-none'
+            : 'bg-gray-100 dark:bg-gray-800 rounded-bl-none',
+          isSystem && 'bg-yellow-50 dark:bg-yellow-900/20'
+        )}
+      >
+        <div className="whitespace-pre-wrap">{content}</div>
+        {timestamp && (
+          <div className="text-xs mt-1 opacity-70">
+            {new Date(timestamp).toLocaleTimeString()}
+          </div>
+        )}
+        {isLoading && isLast && (
+          <div className="flex items-center justify-center mt-2">
+            <div className="animate-pulse flex space-x-2">
+              <div className="h-2 w-2 bg-blue-400 rounded-full"></div>
+              <div className="h-2 w-2 bg-blue-400 rounded-full delay-150"></div>
+              <div className="h-2 w-2 bg-blue-400 rounded-full delay-300"></div>
+            </div>
+          </div>
+        )}
+      </div>
+      {isUser && (
+        <Avatar className="h-8 w-8">
+          <AvatarFallback>U</AvatarFallback>
+        </Avatar>
+      )}
+    </div>
+  );
+};
+
+export function ChatInterface({
+  initialMessage = '',
+  onClose,
+  className = '',
+  isMinimized: initialIsMinimized = false,
+  onToggleMinimize,
+  conversationId,
+}: ChatInterfaceProps) {
+  const [isMinimized, setIsMinimized] = useState(initialIsMinimized);
+  const [input, setInput] = useState(initialMessage);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const { preferences } = usePreferences();
+
+  const {
+    messages = [],
+    isLoading,
+    error,
+    sendMessage,
+    clearConversation,
+    cancelRequest,
+  } = useAIAssistant({
+    initialMessage,
+    conversationId,
+  });
+
+  // Handle sending a message
+  const handleSendMessage = useCallback(async () => {
+    if (!input.trim() || isLoading) return;
+    
+    const message = input.trim();
+    setInput('');
+    
+    try {
+      await sendMessage(message);
+    } catch (err) {
+      console.error('Failed to send message:', err);
+      // Optionally show error to user
+    }
+  }, [input, isLoading, sendMessage]);
+
+  // Handle clearing the conversation
+  const handleClearConversation = useCallback(() => {
+    clearConversation();
+  }, [clearConversation]);
+
+  // Handle keyboard shortcuts
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLInputElement>) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        handleSendMessage();
+      }
+
+      // Focus input when '/' is pressed
+      if (e.key === '/' && e.target !== inputRef.current) {
+        e.preventDefault();
+        inputRef.current?.focus();
+      }
+    },
+    [handleSendMessage]
+  );
+
+  // Auto-scroll to bottom when messages change
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
+
+  // Focus input on mount
+  useEffect(() => {
+    inputRef.current?.focus();
+  }, []);
+
+  // Toggle minimized state
+  const toggleMinimize = useCallback(() => {
+    if (onToggleMinimize) {
+      onToggleMinimize();
+    } else {
+      setIsMinimized((prev) => !prev);
+    }
+  }, [onToggleMinimize]);
+
+  if (isMinimized) {
+    return (
+      <div className={cn('fixed bottom-4 right-4 z-50', className)}>
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-hidden w-80">
+          <div className="bg-blue-500 text-white p-3 flex items-center justify-between">
+            <div className="flex items-center space-x-2">
+              <Bot className="h-5 w-5" />
+              <span className="font-medium">AI Assistant</span>
+            </div>
+            <div className="flex items-center space-x-2">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 text-white hover:bg-blue-600"
+                onClick={toggleMinimize}
+              >
+                <Minimize2 className="h-4 w-4" />
+              </Button>
+              {onClose && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 text-white hover:bg-blue-600"
+                  onClick={onClose}
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className={cn('fixed bottom-4 right-4 z-50 flex flex-col w-96', className)}>
+      <div className="bg-white dark:bg-gray-800 rounded-t-lg shadow-lg overflow-hidden flex-1 flex flex-col">
+        {/* Header */}
+        <div className="bg-blue-500 text-white p-3 flex items-center justify-between">
+          <div className="flex items-center space-x-2">
+            <Bot className="h-5 w-5" />
+            <span className="font-medium">AI Assistant</span>
+          </div>
+          <div className="flex items-center space-x-2">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 text-white hover:bg-blue-600"
+                  onClick={toggleMinimize}
+                >
+                  <Minimize2 className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Minimize</TooltipContent>
+            </Tooltip>
+            {onClose && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 text-white hover:bg-blue-600"
+                    onClick={onClose}
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Close</TooltipContent>
+              </Tooltip>
+            )}
+          </div>
+        </div>
+
+        {/* Messages */}
+        <ScrollArea className="flex-1 p-4 space-y-4">
+          {messages.length === 0 ? (
+            <div className="text-center text-gray-500 dark:text-gray-400 py-8">
+              <p>How can I help you today?</p>
+            </div>
+          ) : (
+            messages.map((message, index) => (
+              <ChatMessage
+                key={message.id || index}
+                message={message}
+                isLast={index === messages.length - 1}
+                isLoading={isLoading && index === messages.length - 1}
+              />
+            ))
+          )}
+          <div ref={messagesEndRef} />
+        </ScrollArea>
+
+        {/* Input */}
+        <div className="border-t border-gray-200 dark:border-gray-700 p-3">
+          <div className="flex items-end space-x-2">
+            <input
+              ref={inputRef}
+              type="text"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="Type your message..."
+              className="flex-1 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              disabled={isLoading}
+            />
+            <Button
+              onClick={handleSendMessage}
+              disabled={!input.trim() || isLoading}
+              className="h-10 w-10 p-0"
+            >
+              {isLoading ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Send className="h-4 w-4" />
+              )}
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default ChatInterface;

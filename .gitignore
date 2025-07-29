@@ -1,0 +1,138 @@
+# Dependencies
+node_modules/
+*/node_modules/
+**/node_modules/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+*.egg-info/
+
+# Build outputs
+dist/
+build/
+*.egg-info/
+.next/
+out/
+
+# Environment variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+*.env
+config/*.env
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Logs
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Runtime data
+pids/
+*.pid
+*.seed
+*.pid.lock
+
+# Coverage directory used by tools like istanbul
+coverage/
+*.lcov
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.temp
+
+# AI/ML model files (keep small ones, ignore large models)
+models/*.bin
+models/*.pt
+models/*.pth
+models/*.h5
+models/*.pkl
+models/large_*
+
+# Upload directories with content
+uploads/*
+!uploads/.gitkeep
+data/uploads/
+results/
+output/
+outputs/
+
+# Test files and debugging
+test_images/
+debug_output/
+*.test.js.snap
+
+# Documentation that might be regenerated
+docs/build/
+
+# Backup files
+backups/
+*.backup
+*.bak
+
+# Claude Code specific
+.claude/
+
+# Deployment specific (but keep templates)
+deployment/secrets/
+deployment/production/
+
+# Large binary files
+*.exe
+*.dmg
+*.pkg
+*.deb
+*.rpm
+
+# Jupyter checkpoints
+.ipynb_checkpoints/
+
+# Cache
+.cache/
+*.cache
+.parcel-cache/
+
+# Lock files (keep package-lock.json but ignore others)
+yarn.lock
+pnpm-lock.yaml
+bun.lockb
+
+# AI training data (too large)
+datasets/large/
+training_data/large/

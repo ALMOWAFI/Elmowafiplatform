@@ -1,0 +1,39 @@
+[build]
+  # Directory to change to before starting a build
+  base = "/"
+  
+  # Directory that contains the deploy-ready HTML files and assets
+  publish = "dist"
+  
+  # Default build command
+  command = "npm run build"
+
+# Redirects and headers are OPTIONAL
+# For more information see: https://docs.netlify.com/routing/redirects/
+
+[[redirects]]
+  # Redirect all paths to index.html for SPA routing
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+[dev]
+  # Command to start your dev server
+  command = "npm run dev"
+  
+  # Port that the dev server will be listening on
+  port = 5173
+  
+  # Serve functions locally
+  functionsPort = 8888
+  
+  # Assume functions are in the functions directory
+  functions = "functions"
+  
+  # Ensure live reload is enabled
+  autoLaunch = true
+
+# Set environment variables
+[build.environment]
+  NODE_VERSION = "18"
+  NPM_VERSION = "9"
