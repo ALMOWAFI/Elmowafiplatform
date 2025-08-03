@@ -35,6 +35,10 @@ import travelRouter from './routes/api/travel.js';
 // Start express app
 const app = express();
 
+// --- HEALTH ENDPOINT ---
+// Mount health check at /api/health for Railway and other platforms
+app.use('/api/health', healthRouter);
+
 // 1) PRODUCTION-READY MIDDLEWARES
 
 // Trust proxy for accurate IP addresses (for load balancers)
