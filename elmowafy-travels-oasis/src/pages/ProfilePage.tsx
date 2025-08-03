@@ -55,43 +55,51 @@ const ProfilePage: React.FC = () => {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
 
-  // Demo profile data
+  // Load real user profile from backend
   useEffect(() => {
-    const loadProfile = () => {
-      const demoProfile: UserProfile = {
-        id: '1',
-        email: 'ahmad@elmowafi.com',
-        fullName: 'Ahmad El-Mowafi',
-        dateOfBirth: '1990-05-15',
-        phone: '+1 (555) 123-4567',
-        location: 'Cairo, Egypt',
-        bio: 'Family organizer and travel enthusiast. Love capturing memories and planning adventures.',
-        avatar: '/api/placeholder/150/150',
-        familyRole: 'Father',
-        joinedDate: '2024-01-15',
-        preferences: {
-          theme: 'auto' as const,
-          language: 'en',
-          notifications: {
-            email: true,
-            push: true,
-            sms: false,
-            familyUpdates: true,
-            memories: true,
-            events: true
-          },
-          privacy: {
-            profileVisibility: 'family' as const,
-            shareLocation: true,
-            shareActivities: true
+    const loadProfile = async () => {
+      setLoading(true);
+      try {
+        const response = await authService.getProfile();
+        const user = response.data.user;
+        // Map backend fields to UserProfile interface
+        const loadedProfile: UserProfile = {
+          id: user.id,
+          email: user.email,
+          fullName: user.name, // assuming backend returns 'name'
+          dateOfBirth: user.dateOfBirth || '',
+          phone: user.phone || '',
+          location: user.location || '',
+          bio: user.bio || '',
+          avatar: user.avatar || '',
+          familyRole: user.familyRole || '',
+          joinedDate: user.joinedDate || '',
+          preferences: user.preferences || {
+            theme: 'auto',
+            language: 'en',
+            notifications: {
+              email: true,
+              push: true,
+              sms: false,
+              familyUpdates: true,
+              memories: true,
+              events: true
+            },
+            privacy: {
+              profileVisibility: 'family',
+              shareLocation: true,
+              shareActivities: true
+            }
           }
-        }
-      };
-      setProfile(demoProfile);
-      setEditedProfile(demoProfile);
-      setLoading(false);
+        };
+        setProfile(loadedProfile);
+        setEditedProfile(loadedProfile);
+      } catch (err: any) {
+        setMessage('Failed to load profile. Please try again.');
+      } finally {
+        setLoading(false);
+      }
     };
-
     loadProfile();
   }, []);
 

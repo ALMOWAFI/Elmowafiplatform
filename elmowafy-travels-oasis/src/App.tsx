@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
 import { Toaster } from '@/components/ui/toaster';
 import { Loader2 } from 'lucide-react';
+import { LanguageProvider } from '@/context/LanguageContext';
 
 // Eager load critical components
 import Navbar from './components/Navbar';
@@ -84,10 +85,11 @@ function App() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <Router>
-        <div className="min-h-screen bg-gray-50">
-          {/* Navigation */}
-          <Navbar />
+      <LanguageProvider>
+        <Router>
+          <div className="min-h-screen bg-gray-50">
+            {/* Navigation */}
+            <Navbar />
           
           {/* Main content with optimized route loading */}
           <main className="pb-16 md:pb-0">
@@ -111,13 +113,14 @@ function App() {
             </Routes>
           </main>
           
-          {/* Mobile Navigation */}
-          <MobileNavigation />
-          
-          {/* Toast notifications */}
-          <Toaster />
-        </div>
-      </Router>
+            {/* Mobile Navigation */}
+            <MobileNavigation />
+            
+            {/* Toast notifications */}
+            <Toaster />
+          </div>
+        </Router>
+      </LanguageProvider>
       
       {/* React Query DevTools (only in development) */}
       {process.env.NODE_ENV === 'development' && (

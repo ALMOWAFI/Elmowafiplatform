@@ -1,5 +1,5 @@
 // API Service for Elmowafiplatform
-const API_BASE_URL = 'http://localhost:8001/api';
+const API_BASE_URL = 'http://localhost:8000/api';
 
 // Authentication token management
 let authToken: string | null = localStorage.getItem('authToken');
@@ -74,6 +74,10 @@ export const apiClient = {
 
 // Authentication services
 export const authService = {
+  // Get current authenticated user's profile
+  getProfile: async () => {
+    return apiClient.get('/auth/me');
+  },
   register: async (userData: { username: string; email: string; password: string }) => {
     const response = await apiClient.post('/auth/register', userData);
     return response;
@@ -117,6 +121,24 @@ export const familyService = {
   deleteMember: async (id: string) => {
     return apiClient.delete(`/family/members/${id}`);
   },
+};
+
+// Search services
+export const searchService = {
+  /**
+   * Global search for memories, events, people, etc. (initially memories)
+   */
+  search: async (params: { query?: string; tags?: string[]; category?: string; familyMember?: string; startDate?: string; endDate?: string; limit?: number }) => {
+    const searchParams = new URLSearchParams();
+    if (params.query) searchParams.append('query', params.query);
+    if (params.tags && params.tags.length) searchParams.append('tags', params.tags.join(','));
+    if (params.category) searchParams.append('category', params.category);
+    if (params.familyMember) searchParams.append('familyMember', params.familyMember);
+    if (params.startDate) searchParams.append('startDate', params.startDate);
+    if (params.endDate) searchParams.append('endDate', params.endDate);
+    if (params.limit) searchParams.append('limit', params.limit.toString());
+    return apiClient.get(`/memories/search?${searchParams.toString()}`);
+  }
 };
 
 // Memory services

@@ -11,8 +11,13 @@ import compression from 'compression';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
-import { AppError } from './middleware/errorHandler.js';
-import globalErrorHandler from './middleware/errorHandler.js';
+
+// Production middleware imports
+import { AppError, globalErrorHandler, notFound } from './middleware/errorHandler.js';
+import { createRateLimiters, advancedHelmet } from './middleware/advancedSecurity.js';
+import { performanceMonitoring, dynamicCompression, requestTracker, metricsEndpoint } from './middleware/monitoring.js';
+import { createCacheMiddleware, staticAssetCache } from './middleware/caching.js';
+import { requestLogger, errorLogger } from './utils/logger.js';
 
 // ES module equivalent of __dirname
 const __filename = fileURLToPath(import.meta.url);
@@ -30,32 +35,67 @@ import travelRouter from './routes/api/travel.js';
 // Start express app
 const app = express();
 
-// 1) GLOBAL MIDDLEWARES
+// 1) PRODUCTION-READY MIDDLEWARES
 
-// Implement CORS
-app.use(cors());
-app.options('*', cors());
+// Trust proxy for accurate IP addresses (for load balancers)
+app.set('trust proxy', 1);
 
-// Set security HTTP headers
-app.use(helmet());
+// Advanced security headers
+app.use(advancedHelmet);
 
-// Development logging
+// Implement CORS with proper configuration
+const corsOptions = {
+  origin: process.env.FRONTEND_URL || ['http://localhost:3000', 'http://localhost:5173'],
+  credentials: true,
+  optionsSuccessStatus: 200,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept']
+};
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));
+
+// Request tracking and logging
+app.use(requestTracker);
+app.use(requestLogger);
+
+// Performance monitoring
+app.use(performanceMonitoring());
+
+// Advanced rate limiting
+const rateLimiters = createRateLimiters();
+app.use('/api', rateLimiters.general);
+app.use('/api/v1/auth', rateLimiters.auth);
+app.use('/api/v1/upload', rateLimiters.upload);
+
+// Progressive enhancement logging
 if (process.env.NODE_ENV === 'development') {
   app.use(morgan('dev'));
+} else {
+  app.use(morgan('combined'));
 }
 
-// Limit requests from same API
-const limiter = rateLimit({
-  max: 100,
-  windowMs: 60 * 60 * 1000,
-  message: 'Too many requests from this IP, please try again in an hour!'
-});
-app.use('/api', limiter);
-
-// Body parser, reading data from body into req.body
-app.use(express.json({ limit: '10kb' }));
-app.use(express.urlencoded({ extended: true, limit: '10kb' }));
+// Enhanced body parsing with security limits
+app.use(express.json({ 
+  limit: process.env.NODE_ENV === 'production' ? '1mb' : '10mb',
+  verify: (req, res, buf) => {
+    req.rawBody = buf;
+  }
+}));
+app.use(express.urlencoded({ 
+  extended: true, 
+  limit: process.env.NODE_ENV === 'production' ? '1mb' : '10mb'
+}));
 app.use(cookieParser());
+
+// Advanced compression
+app.use(dynamicCompression);
+
+// Static asset caching
+app.use(staticAssetCache({
+  maxAge: 31536000, // 1 year
+  etag: true,
+  immutable: true
+}));
 
 // Data sanitization against NoSQL query injection
 app.use(mongoSanitize());
@@ -67,39 +107,96 @@ app.use(xss());
 app.use(
   hpp({
     whitelist: [
-      'duration',
-      'ratingsQuantity',
-      'ratingsAverage',
-      'maxGroupSize',
-      'difficulty',
+      'category',
+      'tags',
+      'type',
+      'sort',
+      'limit',
+      'page',
       'price'
     ]
   })
 );
 
-// Serving static files
-app.use(express.static(path.join(__dirname, 'public')));
+// Serving static files with CDN integration
+app.use(express.static(path.join(__dirname, 'public'), {
+  maxAge: process.env.NODE_ENV === 'production' ? '1y' : '1d',
+  etag: true,
+  lastModified: true
+}));
 
-// Test middleware
+// Add request timestamp for debugging
 app.use((req, res, next) => {
   req.requestTime = new Date().toISOString();
-  // console.log(req.cookies);
   next();
 });
 
-// 3) ROUTES
+// 3) PRODUCTION ENDPOINTS
+
+// Metrics endpoint for monitoring (protected)
+app.get('/metrics', (req, res, next) => {
+  // In production, add authentication middleware here
+  if (process.env.NODE_ENV === 'production' && req.get('Authorization') !== `Bearer ${process.env.METRICS_TOKEN}`) {
+    return next(new AppError('Unauthorized access to metrics', 401));
+  }
+  metricsEndpoint(req, res);
+});
+
+// Health check endpoints
 app.use('/health', healthRouter);
+
+// 4) API ROUTES WITH CACHING
+
+// Authentication routes (no caching)
 app.use('/api/v1/auth', authRouter);
-app.use('/api/v1/family', familyRouter);
-app.use('/api/v1/ai', aiRouter);
-app.use('/api/v1/memories', memoriesRouter);
-app.use('/api/v1/travel', travelRouter);
-// Add other route handlers here
+
+// Family routes with smart caching
+app.use('/api/v1/family', 
+  createCacheMiddleware({
+    ttl: 300, // 5 minutes for family data
+    keyGenerator: (req) => `family:${req.user?.id || 'anonymous'}:${req.originalUrl}`,
+    condition: (req) => req.method === 'GET'
+  }),
+  familyRouter
+);
+
+// AI routes with longer caching for analysis results
+app.use('/api/v1/ai', 
+  createCacheMiddleware({
+    ttl: 1800, // 30 minutes for AI analysis
+    keyGenerator: (req) => `ai:${req.user?.id || 'anonymous'}:${JSON.stringify(req.body)}`,
+    condition: (req) => req.method === 'POST' && req.url.includes('/analyze')
+  }),
+  aiRouter
+);
+
+// Memory routes with timeline caching
+app.use('/api/v1/memories',
+  createCacheMiddleware({
+    ttl: 600, // 10 minutes for memories
+    keyGenerator: (req) => `memories:${req.user?.id || 'anonymous'}:${req.originalUrl}`,
+    condition: (req) => req.method === 'GET'
+  }),
+  memoriesRouter
+);
+
+// Travel routes with recommendation caching
+app.use('/api/v1/travel',
+  createCacheMiddleware({
+    ttl: 3600, // 1 hour for travel recommendations
+    keyGenerator: (req) => `travel:${req.user?.id || 'anonymous'}:${req.originalUrl}:${JSON.stringify(req.query)}`,
+    condition: (req) => req.method === 'GET' && req.url.includes('recommendations')
+  }),
+  travelRouter
+);
+
+// 5) ERROR HANDLING
 
 // Handle unhandled routes
-app.all('*', (req, res, next) => {
-  next(new AppError(`Can't find ${req.originalUrl} on this server!`, 404));
-});
+app.all('*', notFound);
+
+// Error logging middleware
+app.use(errorLogger);
 
 // Global error handling middleware
 app.use(globalErrorHandler);

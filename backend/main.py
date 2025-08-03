@@ -55,8 +55,9 @@ from security import (
 )
 
 # Import Redis and WebSocket managers
-from redis_manager import redis_manager, init_redis, close_redis
-from websocket_redis_manager import websocket_manager, WebSocketMessage, MessageType
+from redis_manager_simple import redis_manager, init_redis, close_redis
+from websocket_redis_manager import websocket_manager as redis_websocket_manager, WebSocketMessage, MessageType as RedisMessageType
+# Ensure we're using the correct WebSocketManager with startup/shutdown methods
 from cache_middleware import CacheMiddleware
 
 # Initialize data manager
@@ -80,10 +81,10 @@ async def startup_event():
         await init_redis()
         
         # Initialize WebSocket manager
-        await websocket_manager.startup()
+        await redis_websocket_manager.startup()
         
-        # Load initial data
-        load_sample_data()
+        # Load initial data - commented out as function doesn't exist
+        # load_sample_data()
         
         logger.info("All services initialized successfully")
     except Exception as e:
@@ -95,7 +96,7 @@ async def shutdown_event():
     """Cleanup services on shutdown"""
     try:
         # Close WebSocket manager
-        await websocket_manager.shutdown()
+        await redis_websocket_manager.shutdown()
         
         # Close Redis connections
         await close_redis()
@@ -2278,4 +2279,4 @@ if __name__ == "__main__":
         port=8001,
         reload=True,
         log_level="info"
-    ) 
+    )

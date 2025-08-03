@@ -13,8 +13,8 @@ from dataclasses import dataclass, asdict
 from enum import Enum
 
 from fastapi import WebSocket, WebSocketDisconnect
-import redis.asyncio as redis
-from redis_manager import redis_manager
+import aioredis
+from redis_manager_simple import redis_manager
 
 logger = logging.getLogger(__name__)
 
@@ -127,7 +127,7 @@ class WebSocketRedisManager:
         self.channel_subscriptions: Dict[str, Set[str]] = {}
         
         # Redis pub/sub
-        self.redis_pubsub: Optional[redis.Redis] = None
+        self.redis_pubsub: Optional[aioredis.Redis] = None
         self.pubsub_task: Optional[asyncio.Task] = None
         
         # Message handlers
@@ -590,4 +590,4 @@ class WebSocketRedisManager:
         }
 
 # Global WebSocket manager instance
-websocket_manager = WebSocketRedisManager() 
+websocket_manager = WebSocketRedisManager()

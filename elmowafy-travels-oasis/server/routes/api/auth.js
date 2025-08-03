@@ -67,4 +67,37 @@ router.post('/login', async (req, res) => {
   }
 });
 
+// Get current authenticated user's profile
+import { auth } from '../../middleware/auth.js';
+
+router.get('/me', auth, async (req, res) => {
+  try {
+    // req.user is set by the auth middleware
+    const user = req.user;
+    if (!user) {
+      return res.status(404).json({ status: 'fail', message: 'User not found.' });
+    }
+    res.status(200).json({
+      status: 'success',
+      data: {
+        user: {
+          id: user._id,
+          name: user.name,
+          email: user.email,
+          dateOfBirth: user.dateOfBirth,
+          phone: user.phone,
+          location: user.location,
+          bio: user.bio,
+          avatar: user.avatar,
+          familyRole: user.familyRole,
+          joinedDate: user.joinedDate,
+          preferences: user.preferences
+        }
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ status: 'error', message: err.message });
+  }
+});
+
 export default router;

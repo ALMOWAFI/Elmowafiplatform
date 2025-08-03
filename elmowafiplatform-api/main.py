@@ -26,7 +26,8 @@ import requests
 from auth import UserAuth, UserLogin, Token, get_current_user, register_user, login_user
 
 # Add the hack2 directory to the path to import AI services
-sys.path.append('../hack2')
+# In Docker, hack2 is copied to the same directory
+sys.path.append('./hack2')
 
 try:
     from facial_recognition_trainer import face_trainer
@@ -70,6 +71,21 @@ app = FastAPI(title="Elmowafiplatform API", version="1.0.0")
 
 # Add cache middleware
 app.add_middleware(CacheMiddleware)
+
+# Health check endpoint
+@app.get("/api/health")
+async def health_check():
+    """Health check endpoint for Railway deployment"""
+    return {
+        "status": "healthy",
+        "timestamp": datetime.now().isoformat(),
+        "version": "1.0.0",
+        "services": {
+            "api": "running",
+            "redis": "available" if redis_manager.is_connected() else "unavailable",
+            "websocket": "available" if websocket_manager.is_connected() else "unavailable"
+        }
+    }
 
 # Startup and shutdown events
 @app.on_event("startup")

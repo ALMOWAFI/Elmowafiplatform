@@ -58,6 +58,8 @@ WORKDIR /app
 
 # Copy application code
 COPY elmowafiplatform-api/ .
+# Copy hack2 AI services
+COPY hack2/ ./hack2/
 
 # Create necessary directories with proper permissions
 RUN mkdir -p data uploads logs face_models training_images && \
@@ -74,4 +76,4 @@ HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
     CMD python -c "import requests; requests.get('http://localhost:8000/api/health')" || exit 1
 
 # Default command
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"] 
+CMD ["python", "start.py"] 

@@ -238,30 +238,16 @@ class AIService {
     estimated_cost: number;
     duration: string;
   }>> {
-    // Mock implementation - would connect to AI service
-    return [
-      {
-        activity: 'Family Photo Walk',
-        description: 'Explore local landmarks and capture family memories',
-        suitability: 0.9,
-        estimated_cost: 0,
-        duration: '2-3 hours'
-      },
-      {
-        activity: 'Cultural Museum Visit',
-        description: 'Educational family outing to learn about heritage',
-        suitability: 0.8,
-        estimated_cost: context.budget ? context.budget * 0.1 : 50,
-        duration: '3-4 hours'
-      },
-      {
-        activity: 'Traditional Cooking Session',
-        description: 'Cook traditional family recipes together',
-        suitability: 0.9,
-        estimated_cost: context.budget ? context.budget * 0.15 : 75,
-        duration: '2-3 hours'
-      }
-    ];
+    // Real implementation - connect to backend AI service
+    const response = await api.post('/ai/travel-recommendations', context);
+    // The backend returns recommendations in response.data
+    // Normalize/validate as needed
+    if (response && response.data && Array.isArray(response.data.recommendations)) {
+      return response.data.recommendations;
+    }
+    // Fallback: If backend structure changes, try to return data directly
+    return response.data || [];
+
   }
 }
 

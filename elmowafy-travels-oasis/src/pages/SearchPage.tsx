@@ -32,90 +32,6 @@ const SearchPage: React.FC = () => {
   const [sortBy, setSortBy] = useState<'relevance' | 'date' | 'type'>('relevance');
   const [searchHistory, setSearchHistory] = useState<string[]>([]);
 
-  // Demo search results
-  const allResults: SearchResult[] = [
-    {
-      id: '1',
-      type: 'memory',
-      title: 'Trip to Pyramids',
-      description: 'Amazing family day exploring the Great Pyramids of Giza. The kids were fascinated by the ancient history.',
-      date: '2024-01-10',
-      location: 'Giza, Egypt',
-      tags: ['family', 'history', 'pyramids', 'egypt'],
-      thumbnail: '/api/placeholder/150/100',
-      relevanceScore: 95
-    },
-    {
-      id: '2',
-      type: 'event',
-      title: 'Omar\'s Birthday Party',
-      description: 'Celebrating Omar turning 16 with family and friends',
-      date: '2024-02-15',
-      location: 'Home',
-      tags: ['birthday', 'celebration', 'family', 'omar'],
-      relevanceScore: 88
-    },
-    {
-      id: '3',
-      type: 'person',
-      title: 'Omar El-Mowafi',
-      description: 'Son, 16 years old, loves photography and gaming',
-      tags: ['family', 'son', 'photography', 'gaming'],
-      thumbnail: '/api/placeholder/100/100',
-      relevanceScore: 85
-    },
-    {
-      id: '4',
-      type: 'travel',
-      title: 'Alexandria Weekend Trip',
-      description: 'Relaxing weekend by the Mediterranean Sea',
-      date: '2024-02-20',
-      location: 'Alexandria, Egypt',
-      tags: ['travel', 'weekend', 'beach', 'mediterranean'],
-      thumbnail: '/api/placeholder/150/100',
-      relevanceScore: 80
-    },
-    {
-      id: '5',
-      type: 'achievement',
-      title: 'Family Historian',
-      description: 'Documented 50+ family memories and photos',
-      date: '2024-01-20',
-      tags: ['achievement', 'memories', 'documentation'],
-      relevanceScore: 75
-    },
-    {
-      id: '6',
-      type: 'photo',
-      title: 'Sunset at Nile River',
-      description: 'Beautiful sunset photograph taken during our Nile cruise',
-      date: '2024-01-05',
-      location: 'Nile River, Egypt',
-      tags: ['photo', 'sunset', 'nile', 'cruise', 'beautiful'],
-      thumbnail: '/api/placeholder/150/100',
-      relevanceScore: 72
-    },
-    {
-      id: '7',
-      type: 'note',
-      title: 'Travel Checklist',
-      description: 'Essential items to pack for family trips',
-      tags: ['travel', 'checklist', 'planning', 'packing'],
-      relevanceScore: 68
-    },
-    {
-      id: '8',
-      type: 'memory',
-      title: 'Cooking with Grandma',
-      description: 'Learning traditional Egyptian recipes from Grandma',
-      date: '2024-01-08',
-      location: 'Grandma\'s Kitchen',
-      tags: ['cooking', 'grandma', 'recipes', 'tradition', 'family'],
-      thumbnail: '/api/placeholder/150/100',
-      relevanceScore: 65
-    }
-  ];
-
   useEffect(() => {
     // Load search history from localStorage
     const history = localStorage.getItem('searchHistory');
@@ -132,34 +48,40 @@ const SearchPage: React.FC = () => {
     }
   }, [searchTerm, activeTab, sortBy]);
 
-  const performSearch = (term: string) => {
+  const performSearch = async (term: string) => {
     setLoading(true);
-    
-    // Simulate search delay
-    setTimeout(() => {
-      let filteredResults = allResults.filter(result => {
-        const searchText = `${result.title} ${result.description} ${result.tags.join(' ')}`.toLowerCase();
-        const matches = searchText.includes(term.toLowerCase());
-        
-        if (activeTab === 'all') return matches;
-        return matches && result.type === activeTab;
-      });
-
-      // Sort results
-      filteredResults.sort((a, b) => {
+    try {
+      // Build params for backend search
+      const params: any = { query: term, limit: 50 };
+      // Optionally filter by type if not 'all'
+      if (activeTab !== 'all') params.category = activeTab;
+      const response = await searchService.search(params);
+      // API returns { status, results, data: { memories } }
+      let items = [];
+      if (response && response.data && Array.isArray(response.data.memories)) {
+        items = response.data.memories;
+      } else if (Array.isArray(response.data)) {
+        items = response.data;
+      }
+      // Optionally sort client-side if needed
+      items.sort((a, b) => {
         switch (sortBy) {
           case 'date':
             return new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime();
           case 'type':
-            return a.type.localeCompare(b.type);
+            return (a.type || '').localeCompare(b.type || '');
           default:
-            return b.relevanceScore - a.relevanceScore;
+            return (b.relevanceScore || 0) - (a.relevanceScore || 0);
         }
       });
-
-      setResults(filteredResults);
+      setResults(items);
+    } catch (error) {
+      setResults([]);
+      // Optionally show error to user
+      console.error('Search failed:', error);
+    } finally {
       setLoading(false);
-    }, 300);
+    }
   };
 
   const addToSearchHistory = (term: string) => {
