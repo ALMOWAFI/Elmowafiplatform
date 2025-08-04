@@ -9,12 +9,16 @@ import sys
 import json
 import asyncio
 import logging
+from functools import lru_cache
 from typing import List, Dict, Any, Optional
 from pathlib import Path
 import requests
 import cv2
 import numpy as np
 from PIL import Image
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 import base64
 from datetime import datetime
 
@@ -573,8 +577,9 @@ class FamilyAIAnalyzer:
 class TravelAIAssistant:
     """AI assistant specialized in family travel planning and recommendations"""
     
-    def __init__(self):
+    def __init__(self, db_manager=None):
         self.travel_knowledge_base = self._load_travel_knowledge()
+        self.db_manager = db_manager # Properly initialize db_manager
     
     def _load_travel_knowledge(self) -> Dict[str, Any]:
         """Load travel knowledge base"""
@@ -595,28 +600,39 @@ class TravelAIAssistant:
             }
         }
     
+    @lru_cache(maxsize=128)
     async def get_travel_recommendations(
         self, 
         destination: str, 
         family_preferences: Dict[str, Any],
         past_travels: List[Dict] = None
     ) -> Dict[str, Any]:
-        """Generate AI-powered travel recommendations"""
-        
-        recommendations = {
-            "destination_analysis": await self._analyze_destination(destination),
-            "family_activities": await self._suggest_family_activities(destination, family_preferences),
-            "cultural_experiences": await self._suggest_cultural_experiences(destination),
-            "budget_estimate": await self._estimate_budget(destination, family_preferences),
-            "travel_tips": await self._generate_travel_tips(destination, family_preferences),
-            "similar_destinations": await self._find_similar_destinations(destination, past_travels)
-        }
-        
-        return recommendations
-    
+        """Generate AI-powered travel recommendations with caching and error handling."""
+        logger.info(f"Fetching travel recommendations for destination: {destination}")
+        try:
+            # This combines the logic from the helper methods into a complete, robust function.
+            recommendations = {
+                "destination_analysis": await self._analyze_destination(destination),
+                "family_activities": await self._suggest_family_activities(destination, family_preferences),
+                "cultural_experiences": await self._suggest_cultural_experiences(destination),
+                "budget_estimate": await self._estimate_budget(destination, family_preferences),
+                "travel_tips": await self._generate_travel_tips(destination, family_preferences),
+                "similar_destinations": await self._find_similar_destinations(destination, past_travels)
+            }
+            logger.info(f"Successfully generated recommendations for {destination}")
+            return recommendations
+        except Exception as e:
+            logger.error(f"Error in get_travel_recommendations for {destination}: {e}", exc_info=True)
+            return {"error": "Failed to generate travel recommendations.", "details": str(e)}
+
     async def _analyze_destination(self, destination: str) -> Dict[str, Any]:
         """Analyze destination for family suitability"""
-        dest_info = self.travel_knowledge_base["destinations"].get(destination, {})
+        # Fallback for when db_manager is not available
+        if not self.db_manager:
+            logger.warning("db_manager not available for destination analysis. Using knowledge base.")
+            dest_info = self.travel_knowledge_base["destinations"].get(destination, {})
+        else:
+            dest_info = self.db_manager.get_destination_info(destination)
         
         return {
             "family_friendly_score": 85 if dest_info.get("family_friendly") else 60,
@@ -1052,8 +1068,12 @@ class AIGameMaster:
             for player in game["players"]:
                 if player["id"] == eliminated_id:
                     player["status"] = "eliminated"
-                    game["game_state"]["eliminated_players"].append(player)
-                    break
+                    game["game_state"]["eliminated_players"].append({"id": player["id"], "name": player["name"], "role": player["role"]})
+                    return {
+                        "result": "elimination",
+                        "message": f"{player['name']} has been eliminated.",
+                        "eliminated_player": {"id": player["id"], "name": player["name"], "role": player["role"]}
+                    }
             
             # Clear voting results
             game["game_state"]["voting_results"] = {}

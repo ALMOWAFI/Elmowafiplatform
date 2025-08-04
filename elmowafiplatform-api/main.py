@@ -1,2849 +1,919 @@
 #!/usr/bin/env python3
 """
-Unified API Server for Elmowafiplatform
-Bridges React frontend with Python AI services and provides central data management
+Unified Elmowafiplatform API
+Production-ready FastAPI application with all production features
 """
 
 import os
-import sys
-import json
-import uuid
-import asyncio
 import logging
-from datetime import datetime, timedelta
-from typing import List, Optional, Dict, Any
-from pathlib import Path
-
-import uvicorn
-from fastapi import FastAPI, File, UploadFile, HTTPException, BackgroundTasks, Form, WebSocket, WebSocketDisconnect, Depends, Request
+from datetime import datetime
+from fastapi import FastAPI, Depends, HTTPException, Request, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-import aiofiles
-import requests
-import google.generativeai as genai
+from typing import List, Dict, Any, Optional
 
-# Import authentication
-from auth import UserAuth, UserLogin, Token, get_current_user, register_user, login_user
+# Import production features
+from logging_config import configure_structured_logging, get_logger, StructuredLoggingMiddleware
+from error_tracking import initialize_sentry, set_user_context, capture_exception
+from performance_monitoring import performance_monitor, PrometheusMiddleware, metrics_endpoint
+from rate_limiting import RateLimitMiddleware, rate_limit, check_rate_limit
+from circuit_breakers import circuit_breaker_manager, circuit_breaker
+from graceful_shutdown import lifespan, graceful_shutdown
+from secrets_management import secrets_manager, validate_production_secrets
+from unified_database import get_unified_database, UnifiedDatabase
 
-# Add the hack2 directory to the path to import AI services
-# In Docker, hack2 is copied to the same directory
-sys.path.append('./hack2')
+# Import new photo and game systems
+from photo_upload import get_photo_upload_system, get_album_management, get_family_photo_linking
+from game_state import get_game_state_manager
 
-try:
-    from facial_recognition_trainer import face_trainer
-    FACE_RECOGNITION_AVAILABLE = True
-except ImportError:
-    print("Face recognition not available - install face-recognition package for full AI features")
-    face_trainer = None
-    FACE_RECOGNITION_AVAILABLE = False
+# Import enhanced database
+from database_enhanced import get_enhanced_database
 
-try:
-    from photo_clustering import photo_clustering_engine
-    PHOTO_CLUSTERING_AVAILABLE = True
-except ImportError:
-    print("Photo clustering not available - check AI dependencies")
-    photo_clustering_engine = None
-    PHOTO_CLUSTERING_AVAILABLE = False
-
-# Import the data manager
-from data_manager import DataManager
-
-# Import security features
-from security import (
-    security_manager, rate_limit, validate_input_data,
-    USER_REGISTRATION_RULES, MEMORY_CREATION_RULES, EVENT_CREATION_RULES,
-    get_cors_origins
+# Import enhanced circuit breakers
+from circuit_breakers_enhanced import (
+    circuit_breaker_manager,
+    database_circuit_breaker,
+    photo_upload_circuit_breaker,
+    game_state_circuit_breaker,
+    ai_service_circuit_breaker,
+    get_circuit_breaker_health
 )
 
-# Import Redis and WebSocket managers
-from redis_manager_simple import redis_manager, init_redis, close_redis
-from websocket_redis_manager import websocket_manager, WebSocketMessage, MessageType
-from cache_middleware import CacheMiddleware
+# Import enhanced performance monitoring
+from performance_monitoring_enhanced import performance_monitor
 
-# Initialize data manager
-data_manager = DataManager()
+# Configure structured logging
+configure_structured_logging()
+logger = get_logger("main")
 
-# Initialize logging
-logger = logging.getLogger(__name__)
+# Initialize Sentry error tracking
+initialize_sentry()
 
-# Initialize FastAPI app
-app = FastAPI(title="Elmowafiplatform API", version="1.0.0")
+# Validate production secrets
+if os.getenv('ENVIRONMENT') == 'production':
+    if not validate_production_secrets():
+        logger.error("Production secrets validation failed")
+        raise RuntimeError("Required production secrets are missing")
 
-# Configure Gemini AI
-GEMINI_API_KEY = "AIzaSyCbqHeGOWCbvK5J-BH9y0Lhq8zxHINuWHU"
-genai.configure(api_key=GEMINI_API_KEY)
+# Create FastAPI app with lifespan
+app = FastAPI(
+    title="Elmowafiplatform Unified API",
+    description="Unified platform linking budget, photos, games, and family data",
+    version="2.0.0",
+    lifespan=lifespan
+)
 
-# Initialize Gemini model
-try:
-    gemini_model = genai.GenerativeModel('gemini-pro')
-    logger.info("✅ Gemini AI initialized successfully")
-except Exception as e:
-    logger.error(f"❌ Failed to initialize Gemini AI: {e}")
-    gemini_model = None
+# Add production middleware
+app.add_middleware(StructuredLoggingMiddleware)
+app.add_middleware(PrometheusMiddleware)
+app.add_middleware(RateLimitMiddleware)
 
-# Add cache middleware
-app.add_middleware(CacheMiddleware)
-
-# Health check endpoint
-@app.get("/api/health")
-async def health_check():
-    """Health check endpoint for Railway deployment"""
-    return {
-        "status": "healthy",
-        "timestamp": datetime.now().isoformat(),
-        "version": "1.0.0",
-        "services": {
-            "api": "running",
-            "redis": "available" if redis_manager.is_connected() else "unavailable",
-            "websocket": "available" if websocket_manager.is_connected() else "unavailable"
-        }
-    }
-
-# Startup and shutdown events
-@app.on_event("startup")
-async def startup_event():
-    """Initialize services on startup"""
-    try:
-        # Initialize Redis (with fallback to in-memory cache)
-        await init_redis()
-        
-        # Load initial data (disabled for now)
-        # load_sample_data()
-        
-        logger.info("All services initialized successfully")
-    except Exception as e:
-        logger.error(f"Failed to initialize services: {e}")
-        # Don't raise - allow server to start with basic functionality
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    """Cleanup services on shutdown"""
-    try:
-        # Close WebSocket manager
-        await websocket_manager.shutdown()
-        
-        # Close Redis connections
-        await close_redis()
-        
-        logger.info("All services shut down successfully")
-    except Exception as e:
-        logger.error(f"Error during shutdown: {e}")
-
-# Enable CORS for React frontend
-# Update CORS configuration for production
+# CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=get_cors_origins(),
+    allow_origins=os.getenv('CORS_ORIGINS', 'http://localhost:3000').split(','),
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Create directories
-UPLOAD_DIR = Path("uploads")
-MEMORY_DIR = Path("memories")
-DATA_DIR = Path("data")
-
-for directory in [UPLOAD_DIR, MEMORY_DIR, DATA_DIR]:
-    directory.mkdir(exist_ok=True)
-
-# Serve static files
-app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
-app.mount("/memories", StaticFiles(directory="memories"), name="memories")
-
-# AI Service URLs
-AI_SERVICE_URL = os.getenv("AI_SERVICE_URL", "http://localhost:5000")
-MATH_ANALYZER_URL = os.getenv("MATH_ANALYZER_URL", "http://localhost:8000")
-FAMILY_AI_URL = os.getenv("FAMILY_AI_URL", "http://localhost:6000")
-
-# Data Models
-class FamilyMember(BaseModel):
-    id: Optional[str] = None
+# Pydantic models
+class FamilyMemberCreate(BaseModel):
     name: str
-    nameArabic: Optional[str] = None
-    birthDate: Optional[str] = None
+    name_arabic: Optional[str] = None
+    birth_date: Optional[str] = None
     location: Optional[str] = None
     avatar: Optional[str] = None
-    relationships: List[Dict[str, str]] = []
+    relationships: Optional[Dict[str, Any]] = None
+    role: str = "member"
 
-class Memory(BaseModel):
-    id: Optional[str] = None
+class MemoryCreate(BaseModel):
+    family_group_id: str
     title: str
     description: Optional[str] = None
     date: str
     location: Optional[str] = None
-    imageUrl: Optional[str] = None
-    tags: List[str] = []
-    familyMembers: List[str] = []  # Family member IDs
-    aiAnalysis: Optional[Dict[str, Any]] = None
+    image_url: Optional[str] = None
+    thumbnail_url: Optional[str] = None
+    tags: Optional[List[str]] = None
+    family_members: Optional[List[str]] = None
+    memory_type: str = "photo"
+    privacy_level: str = "family"
 
-class TravelPlan(BaseModel):
-    id: Optional[str] = None
+class BudgetProfileCreate(BaseModel):
+    family_group_id: str
+    name: str
+    description: Optional[str] = None
+    currency: str = "USD"
+
+class BudgetEnvelopeCreate(BaseModel):
+    budget_profile_id: str
+    name: str
+    amount: float = 0
+    category: Optional[str] = None
+    color: Optional[str] = None
+    icon: Optional[str] = None
+
+class BudgetTransactionCreate(BaseModel):
+    budget_profile_id: str
+    envelope_id: Optional[str] = None
+    family_member_id: Optional[str] = None
+    description: str
+    amount: float
+    transaction_type: str  # EXPENSE, INCOME, TRANSFER
+    date: str
+    location: Optional[str] = None
+    tags: Optional[List[str]] = None
+
+class GameSessionCreate(BaseModel):
+    family_group_id: str
+    game_type: str
+    title: Optional[str] = None
+    description: Optional[str] = None
+    players: List[str]
+    settings: Optional[Dict[str, Any]] = None
+
+class TravelPlanCreate(BaseModel):
+    family_group_id: str
     name: str
     destination: str
-    startDate: str
-    endDate: str
+    start_date: str
+    end_date: str
     budget: Optional[float] = None
-    participants: List[str] = []  # Family member IDs
-    activities: List[Dict[str, Any]] = []
+    participants: Optional[List[str]] = None
+    activities: Optional[List[str]] = None
 
-class AIAnalysisRequest(BaseModel):
-    analysisType: str
-    familyContext: Optional[List[Dict[str, Any]]] = None
-
-class LocationVerificationRequest(BaseModel):
-    player_id: str
-    game_session_id: str
-    target_latitude: float
-    target_longitude: float
-    actual_latitude: float
-    actual_longitude: float
-    challenge_id: Optional[str] = None
-    gps_metadata: Optional[Dict[str, Any]] = None
-
-class LocationChallenge(BaseModel):
-    game_session_id: str
-    challenge_name: str
-    target_location: str
-    target_latitude: float
-    target_longitude: float
-    challenge_type: str = "reach_point"
-    points_reward: int = 100
-    time_limit_minutes: int = 60
-    verification_radius: Optional[float] = None
-    requirements: Optional[Dict[str, Any]] = None
-
-# Import database, WebSocket manager, facial recognition trainer, and photo clustering
-from database import db
-from websocket_manager import websocket_manager, ConnectionType, MessageType
-
-# Optional imports for AI features
-try:
-    from facial_recognition_trainer import face_trainer
-    FACE_RECOGNITION_AVAILABLE = True
-except ImportError:
-    print("Face recognition not available - install face-recognition package for full AI features")
-    face_trainer = None
-    FACE_RECOGNITION_AVAILABLE = False
-
-try:
-    from photo_clustering import photo_clustering_engine
-    PHOTO_CLUSTERING_AVAILABLE = True
-except ImportError:
-    print("Photo clustering not available - check AI dependencies")
-    photo_clustering_engine = None
-    PHOTO_CLUSTERING_AVAILABLE = False
-
-# CORS middleware - fix OPTIONS requests
-from fastapi.middleware.cors import CORSMiddleware
-
-# Add security-enhanced authentication endpoints
-@app.post("/api/auth/register")
-@rate_limit(max_requests=5, window=3600)  # 5 registrations per hour
-async def register(request: Request, user_data: dict):
-    """Register a new user with input validation and security"""
-    try:
-        # Validate input data
-        validated_data = security_manager.validate_input(user_data, USER_REGISTRATION_RULES)
-        
-        # Check if user already exists
-        email = validated_data['email']
-        # In real implementation, check database
-        
-        # Hash password securely
-        hashed_password = security_manager.hash_password(validated_data['password'])
-        
-        # Create user record (in real implementation, save to database)
-        user_record = {
-            "id": security_manager.generate_secure_token(16),
-            "email": email,
-            "full_name": validated_data['full_name'],
-            "phone": validated_data.get('phone'),
-            "password_hash": hashed_password,
-            "created_at": datetime.now().isoformat(),
-            "is_active": True
-        }
-        
-        # Generate JWT token
-        access_token = create_access_token(data={"sub": email, "user_id": user_record["id"]})
-        
-        security_manager.log_security_event(
-            "USER_REGISTERED",
-            {"email": email, "user_id": user_record["id"]},
-            request
-        )
-        
-        return {
-            "access_token": access_token,
-            "token_type": "bearer",
-            "user": {
-                "id": user_record["id"],
-                "email": email,
-                "full_name": validated_data['full_name']
-            }
-        }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        security_manager.log_security_event(
-            "REGISTRATION_ERROR",
-            {"error": str(e), "email": user_data.get('email', 'unknown')},
-            request
-        )
-        raise HTTPException(status_code=500, detail="Registration failed")
-
-@app.post("/api/auth/login")
-@rate_limit(max_requests=10, window=3600)  # 10 login attempts per hour
-async def login(request: Request, credentials: dict):
-    """Secure login with rate limiting and attempt tracking"""
-    try:
-        email = credentials.get('email', '').lower().strip()
-        password = credentials.get('password', '')
-        
-        if not email or not password:
-            raise HTTPException(status_code=400, detail="Email and password required")
-        
-        # Check if account is locked
-        if security_manager.is_account_locked(email):
-            security_manager.log_security_event(
-                "LOGIN_BLOCKED_LOCKED_ACCOUNT",
-                {"email": email},
-                request
-            )
-            raise HTTPException(
-                status_code=429, 
-                detail=f"Account locked due to too many failed attempts. Try again in {SECURITY_CONFIG['lockout_duration']/60} minutes."
-            )
-        
-        # Validate credentials (in real implementation, check against database)
-        # For demo, accept specific credentials
-        demo_users = {
-            "ahmad@elmowafi.com": security_manager.hash_password("Ahmad123!"),
-            "fatima@elmowafi.com": security_manager.hash_password("Fatima123!"),
-            "omar@elmowafi.com": security_manager.hash_password("Omar123!"),
-            "layla@elmowafi.com": security_manager.hash_password("Layla123!")
-        }
-        
-        if email not in demo_users or not security_manager.verify_password(password, demo_users[email]):
-            security_manager.track_failed_login(email)
-            security_manager.log_security_event(
-                "LOGIN_FAILED",
-                {"email": email},
-                request
-            )
-            raise HTTPException(status_code=401, detail="Invalid credentials")
-        
-        # Clear failed attempts on successful login
-        security_manager.clear_failed_attempts(email)
-        
-        # Generate JWT token
-        user_id = email.split('@')[0]  # Simple user ID for demo
-        access_token = create_access_token(data={"sub": email, "user_id": user_id})
-        
-        security_manager.log_security_event(
-            "LOGIN_SUCCESS",
-            {"email": email, "user_id": user_id},
-            request
-        )
-        
-        return {
-            "access_token": access_token,
-            "token_type": "bearer",
-            "user": {
-                "id": user_id,
-                "email": email,
-                "full_name": email.split('@')[0].title()
-            }
-        }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        security_manager.log_security_event(
-            "LOGIN_ERROR",
-            {"error": str(e), "email": credentials.get('email', 'unknown')},
-            request
-        )
-        raise HTTPException(status_code=500, detail="Login failed")
-
-# Family Member Endpoints
-@app.get("/api/family/members")
-async def get_family_members():
-    """Get all family members"""
-    return db.get_family_members()
-
-@app.post("/api/family/members")
-async def create_family_member(member: Dict[str, Any]):
-    """Create a new family member"""
-    member_id = db.create_family_member(member)
-    # Return the created member
-    members = db.get_family_members()
-    return next((m for m in members if m["id"] == member_id), None)
-
-@app.put("/api/family/members/{member_id}")
-async def update_family_member(member_id: str, updates: Dict[str, Any]):
-    """Update a family member"""
-    success = db.update_family_member(member_id, updates)
-    if not success:
-        raise HTTPException(status_code=404, detail="Family member not found")
-    
-    # Return updated member
-    members = db.get_family_members()
-    return next((m for m in members if m["id"] == member_id), None)
-
-# Memory Endpoints
-@app.get("/api/memories")
-async def get_memories(
-    familyMemberId: Optional[str] = None,
-    startDate: Optional[str] = None,
-    endDate: Optional[str] = None,
+class CulturalHeritageCreate(BaseModel):
+    family_group_id: str
+    title: str
+    title_arabic: Optional[str] = None
+    description: Optional[str] = None
+    description_arabic: Optional[str] = None
+    category: Optional[str] = None
+    family_members: Optional[List[str]] = None
+    cultural_significance: Optional[str] = None
     tags: Optional[List[str]] = None
-):
-    """Get memories with optional filters"""
-    filters = {}
-    if familyMemberId:
-        filters["familyMemberId"] = familyMemberId
-    if startDate and endDate:
-        filters["startDate"] = startDate
-        filters["endDate"] = endDate
-    if tags:
-        filters["tags"] = tags
-    
-    return db.get_memories(filters)
+    preservation_date: Optional[str] = None
+    media_urls: Optional[List[str]] = None
 
-@app.post("/api/memories/upload")
-async def upload_memory(
-    background_tasks: BackgroundTasks,
-    title: str = Form(...),
-    description: Optional[str] = Form(None),
-    date: str = Form(...),
-    location: Optional[str] = Form(None),
-    tags: str = Form("[]"),  # JSON string
-    familyMembers: str = Form("[]"),  # JSON string
-    image: Optional[UploadFile] = File(None)
-):
-    """Upload a new memory with optional image"""
-    image_url = None
-    
-    if image:
-        filename = await save_uploaded_file(image, MEMORY_DIR)
-        image_url = f"/memories/{filename}"
-    
-    memory_data = {
-        "title": title,
-        "description": description,
-        "date": date,
-        "location": location,
-        "imageUrl": image_url,
-        "tags": json.loads(tags),
-        "familyMembers": json.loads(familyMembers)
-    }
-    
-    memory_id = db.create_memory(memory_data)
-    
-    if image:
-        # Schedule AI analysis in background
-        background_tasks.add_task(
-            process_memory_ai_analysis,
-            memory_id,
-            MEMORY_DIR / filename,
-            json.loads(familyMembers)
-        )
-    
-    # Return the created memory
-    memories = db.get_memories()
-    return next((m for m in memories if m["id"] == memory_id), None)
+# Photo Upload Models
+class PhotoUploadRequest(BaseModel):
+    family_group_id: str
+    family_members: Optional[List[str]] = None
+    album_id: Optional[str] = None
+    description: Optional[str] = None
+    tags: Optional[List[str]] = None
+    privacy_level: str = "family"
 
-async def process_memory_ai_analysis(memory_id: str, image_path: Path, family_member_ids: List[str]):
-    """Background task to process memory with AI"""
+class AlbumCreateRequest(BaseModel):
+    family_group_id: str
+    name: str
+    description: Optional[str] = None
+    album_type: str = "custom"
+    privacy_level: str = "family"
+    cover_photo_id: Optional[str] = None
+
+class FamilyPhotoLinkRequest(BaseModel):
+    memory_id: str
+    family_member_ids: List[str]
+    confidence_scores: Optional[List[float]] = None
+
+# Game State Models
+class GameSessionCreateRequest(BaseModel):
+    family_group_id: str
+    game_type: str
+    title: Optional[str] = None
+    description: Optional[str] = None
+    players: List[str] = None
+    settings: Optional[Dict[str, Any]] = None
+    created_by: Optional[str] = None
+
+class GameJoinRequest(BaseModel):
+    session_id: str
+    player_id: str
+    player_name: str
+
+class GameMoveRequest(BaseModel):
+    session_id: str
+    player_id: str
+    move_data: Dict[str, Any]
+
+# Database dependency
+def get_db() -> UnifiedDatabase:
+    return get_unified_database()
+
+def get_enhanced_db():
+    """Get enhanced database instance"""
+    return get_enhanced_database()
+
+# Health check endpoint
+@app.get("/api/health")
+async def health_check():
+    """Health check endpoint with production monitoring"""
     try:
-        # Get family context for AI analysis
-        all_members = db.get_family_members()
-        family_context = []
-        for member_id in family_member_ids:
-            member = next((m for m in all_members if m["id"] == member_id), None)
-            if member:
-                family_context.append({
-                    "id": member["id"],
-                    "name": member["name"],
-                    "nameArabic": member["nameArabic"]
-                })
+        # Check database connection
+        db = get_db()
+        with db.get_db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT 1")
         
-        analysis = await analyze_family_photo_with_ai(str(image_path), family_context)
-        
-        # Update memory with AI analysis
-        updates = {"aiAnalysis": analysis.get("analysis", {})}
-        
-        # Auto-update family members based on AI detection
-        if analysis.get("success") and "faces" in analysis.get("analysis", {}):
-            faces_data = analysis["analysis"]["faces"]
-            if isinstance(faces_data, dict) and "family_members_detected" in faces_data:
-                detected_members = faces_data["family_members_detected"]
-                detected_ids = [member.get("member_id") for member in detected_members if member.get("member_id")]
-                if detected_ids:
-                    updates["familyMembers"] = list(set(family_member_ids + detected_ids))
-        
-        # Auto-add smart tags
-        smart_tags = analysis.get("analysis", {}).get("smart_tags", [])
-        if smart_tags:
-            current_memory = next((m for m in db.get_memories() if m["id"] == memory_id), None)
-            if current_memory:
-                existing_tags = current_memory.get("tags", [])
-                updates["tags"] = list(set(existing_tags + smart_tags))
-        
-        db.update_memory(memory_id, updates)
-                
-    except Exception as e:
-        print(f"AI analysis failed for memory {memory_id}: {e}")
-
-@app.post("/api/memories/{memory_id}/analyze")
-async def analyze_memory(memory_id: str):
-    """Trigger AI analysis for a specific memory"""
-    memories = db.get_memories()
-    memory = next((m for m in memories if m["id"] == memory_id), None)
-    
-    if not memory:
-        raise HTTPException(status_code=404, detail="Memory not found")
-    
-    if not memory.get("imageUrl"):
-        raise HTTPException(status_code=400, detail="Memory has no image to analyze")
-    
-    # Extract filename from URL and construct path
-    filename = memory["imageUrl"].split("/")[-1]
-    image_path = MEMORY_DIR / filename
-    
-    # Get family context
-    all_members = db.get_family_members()
-    family_context = []
-    for member_id in memory.get("familyMembers", []):
-        member = next((m for m in all_members if m["id"] == member_id), None)
-        if member:
-            family_context.append({
-                "id": member["id"],
-                "name": member["name"],
-                "nameArabic": member["nameArabic"]
-            })
-    
-            analysis = await analyze_family_photo_with_ai(str(image_path), family_context)
-    
-    # Update memory with analysis
-    db.update_memory(memory_id, {"aiAnalysis": analysis.get("analysis", {})})
-    
-    return analysis
-
-# Travel Planning Endpoints
-@app.get("/api/travel/plans")
-async def get_travel_plans(familyMemberId: Optional[str] = None):
-    """Get travel plans"""
-    return db.get_travel_plans(familyMemberId)
-
-@app.post("/api/travel/plans")
-async def create_travel_plan(plan: Dict[str, Any]):
-    """Create a new travel plan"""
-    plan_id = db.create_travel_plan(plan)
-    # Return the created plan
-    plans = db.get_travel_plans()
-    return next((p for p in plans if p["id"] == plan_id), None)
-
-@app.post("/api/travel/recommendations")
-async def get_travel_recommendations(request: Dict[str, Any]):
-    """Get AI-powered travel recommendations based on family history"""
-    destination = request.get("destination", "")
-    family_preferences = request.get("familyPreferences", {})
-    
-    if AI_AVAILABLE:
-        try:
-            # Get past travel history from memories
-            past_travels = []
-            memories = db.get_memories()
-            for memory in memories:
-                if memory.get("location") and "travel" in memory.get("tags", []):
-                    past_travels.append({
-                        "destination": memory["location"],
-                        "date": memory["date"],
-                        "familyMembers": memory.get("familyMembers", [])
-                    })
-            
-            # Get AI-powered recommendations
-            ai_recommendations = await travel_ai_assistant.get_travel_recommendations(
-                destination, 
-                family_preferences,
-                past_travels
-            )
-            
-            return {
-                "recommendations": ai_recommendations.get("destination_analysis", {}),
-                "familyActivities": ai_recommendations.get("family_activities", []),
-                "culturalExperiences": ai_recommendations.get("cultural_experiences", []),
-                "estimatedBudget": ai_recommendations.get("budget_estimate", {}).get("total_estimate", 2000),
-                "budgetBreakdown": ai_recommendations.get("budget_estimate", {}).get("breakdown", {}),
-                "travelTips": ai_recommendations.get("travel_tips", []),
-                "similarDestinations": ai_recommendations.get("similar_destinations", []),
-                "suggestedActivities": ai_recommendations.get("family_activities", []),
-                "ai_powered": True,
-                "based_on_history": len(past_travels) > 0
-            }
-            
-        except Exception as e:
-            print(f"AI travel recommendations failed: {e}")
-    
-    # Fallback to basic recommendations
-    recommendations = [
-        f"Visit the historic districts of {destination}",
-        f"Try local family-friendly restaurants in {destination}", 
-        f"Explore cultural sites suitable for all ages"
+        # Check circuit breakers
+        circuit_breaker_states = circuit_breaker_manager.get_all_states()
+        open_circuits = [
+            name for name, state in circuit_breaker_states.items() 
+            if state["state"] == "open"
     ]
     
     return {
-        "recommendations": recommendations,
-        "estimatedBudget": 2000,
-        "suggestedActivities": [
-            {
-                "id": str(uuid.uuid4()),
-                "name": f"City Tour of {destination}",
-                "location": destination,
-                "date": datetime.now().isoformat(),
-                "cost": 150,
-                "description": "Guided family tour"
-            }
-        ],
-        "ai_powered": False
-    }
-
-# Smart Memory Features
-@app.get("/api/memories/suggestions")
-async def get_memory_suggestions(date: Optional[str] = None):
-    """Get smart memory suggestions powered by AI"""
-    target_date = date or datetime.now().strftime("%Y-%m-%d")
-    
-    if AI_AVAILABLE:
-        try:
-            from ai_services import SmartMemorySuggestions
-            
-            # Convert database memories to dict format for SmartMemorySuggestions
-            memories = db.get_memories()
-            memories_dict = {m["id"]: m for m in memories}
-            suggestions_engine = SmartMemorySuggestions(memories_dict)
-            
-            # Get "On this day" memories
-            on_this_day = suggestions_engine.get_on_this_day_memories(target_date)
-            
-            # Get intelligent recommendations
-            family_members = db.get_family_members()
-            recommendations = suggestions_engine.generate_memory_recommendations(
-                [{"id": m["id"], "name": m["name"]} for m in family_members]
-            )
-            
-            # Get similar memories (if any memories exist)
-            similar = []
-            if memories:
-                latest_memory = max(memories, key=lambda x: x["date"])
-                similar = suggestions_engine.get_similar_memories(latest_memory["id"], limit=3)
-            
-            return {
-                "onThisDay": on_this_day,
-                "similar": similar,
-                "recommendations": recommendations,
-                "ai_powered": True
-            }
-        except Exception as e:
-            print(f"AI suggestions failed: {e}")
-    
-    # Fallback to basic suggestions
-    on_this_day = []
-    memories = db.get_memories()
-    similar = memories[:3]
-    
-    recommendations = [
-        "Share this memory with family members",
-        "Create a photo album for this trip", 
-        "Plan a return visit to this location"
-    ]
-    
-    return {
-        "onThisDay": on_this_day,
-        "similar": similar,
-        "recommendations": recommendations,
-        "ai_powered": False
-    }
-
-@app.post("/api/memories/search")
-async def search_memories(request: Dict[str, Any]):
-    """Search memories with AI assistance"""
-    query = request.get("query", "")
-    filters = request.get("filters", {})
-    
-    # Simple text search (enhance with AI)
-    memories = db.get_memories()
-    
-    if query:
-        memories = [
-            m for m in memories 
-            if query.lower() in m["title"].lower() 
-            or (m.get("description") and query.lower() in m["description"].lower())
-        ]
-    
-    return memories
-
-# AI Analysis Endpoint
-@app.post("/api/analyze")
-async def analyze_image(
-    image: UploadFile = File(...),
-    analysisType: str = Form("general"),
-    familyContext: str = Form("[]")
-):
-    """Direct AI analysis endpoint"""
-    # Save uploaded image
-    filename = await save_uploaded_file(image, UPLOAD_DIR)
-    image_path = UPLOAD_DIR / filename
-    
-    # Analyze with AI
-    analysis = await analyze_image_with_ai(str(image_path), analysisType)
-    
-    return analysis
-
-# AI Game Master Endpoints
-@app.post("/api/games/create")
-async def create_game_session(request: Dict[str, Any]):
-    """Create new AI-managed game session"""
-    game_type = request.get("gameType", "")
-    players = request.get("players", [])
-    settings = request.get("settings", {})
-    
-    if not AI_AVAILABLE:
-        return {
-            "error": "AI Game Master not available",
-            "fallback": "Manual game setup required"
-        }
-    
-    try:
-        # Convert family member data to player format
-        all_members = db.get_family_members()
-        game_players = []
-        for player_data in players:
-            if isinstance(player_data, str):  # Family member ID
-                member = next((m for m in all_members if m["id"] == player_data), None)
-                if member:
-                    game_players.append({
-                        "id": member["id"],
-                        "name": member["name"],
-                        "nameArabic": member["nameArabic"]
-                    })
-            else:
-                game_players.append(player_data)
-        
-        game_session = await ai_game_master.create_game_session(
-            game_type, 
-            game_players, 
-            settings
-        )
-        
-        # Save to database
-        db.create_game_session(game_session)
-        
-        return game_session
-        
-    except Exception as e:
-        return {"error": f"Failed to create game session: {str(e)}"}
-
-@app.get("/api/games/{game_id}")
-async def get_game_session(game_id: str):
-    """Get current game session state"""
-    if not AI_AVAILABLE:
-        return {"error": "AI Game Master not available"}
-    
-    game_session = db.get_game_session(game_id)
-    if game_session:
-        return game_session
-    else:
-        return {"error": "Game session not found"}
-
-@app.post("/api/games/{game_id}/action")
-async def process_game_action(game_id: str, action: Dict[str, Any]):
-    """Process game action through AI Game Master"""
-    if not AI_AVAILABLE:
-        return {"error": "AI Game Master not available"}
-    
-    try:
-        result = await ai_game_master.process_game_action(game_id, action)
-        return result
-    except Exception as e:
-        return {"error": f"Failed to process game action: {str(e)}"}
-
-@app.get("/api/games/rules/{game_type}")
-async def get_game_rules(game_type: str):
-    """Get rules and information for a specific game type"""
-    if not AI_AVAILABLE:
-        return {"error": "AI Game Master not available"}
-    
-    rules = ai_game_master.game_rules.get(game_type, {})
-    if rules:
-        return {
-            "gameType": game_type,
-            "rules": rules,
-            "aiFeatures": [
-                "Automatic role assignment",
-                "Fair play monitoring", 
-                "Real-time rule enforcement",
-                "Intelligent game progression",
-                "Multi-language support (Arabic/English)"
-            ]
-        }
-    else:
-        return {"error": f"Game type '{game_type}' not supported"}
-
-@app.get("/api/games/active")
-async def get_active_games():
-    """Get all active game sessions"""
-    if not AI_AVAILABLE:
-        return {"activeGames": [], "ai_available": False}
-    
-    active_games = db.get_active_game_sessions()
-    
-    return {
-        "activeGames": active_games,
-        "ai_available": True,
-        "supportedGames": list(ai_game_master.game_rules.keys())
-    }
-
-# Gaming & Activities Endpoints
-
-class GameSession(BaseModel):
-    id: Optional[str] = None
-    game_type: str  # 'mafia', 'location', 'trivia', 'challenge'
-    players: List[Dict[str, Any]] = []
-    status: str = 'waiting'  # 'waiting', 'active', 'paused', 'completed'
-    current_round: int = 1
-    total_rounds: int = 1
-    game_state: Dict[str, Any] = {}
-    ai_referee_enabled: bool = True
-    created_at: Optional[str] = None
-
-class MafiaGameState(BaseModel):
-    phase: str = 'lobby'  # 'lobby', 'night', 'day', 'voting', 'finished'
-    alive_players: List[str] = []
-    dead_players: List[str] = []
-    roles: Dict[str, str] = {}  # player_id -> role
-    votes: Dict[str, str] = {}  # voter_id -> voted_player_id
-    day_count: int = 0
-    winner: Optional[str] = None
-    game_log: List[str] = []
-
-# Game session storage (in production, use Redis/database)
-active_games: Dict[str, GameSession] = {}
-mafia_games: Dict[str, MafiaGameState] = {}
-
-@app.post("/api/games/create")
-async def create_game_session(game_data: GameSession, current_user: dict = Depends(get_current_user)):
-    """Create a new game session"""
-    game_id = str(uuid.uuid4())
-    game_data.id = game_id
-    game_data.created_at = datetime.now().isoformat()
-    
-    # Initialize specific game state
-    if game_data.game_type == 'mafia':
-        mafia_state = MafiaGameState()
-        mafia_games[game_id] = mafia_state
-        game_data.game_state = {"mafia_state": "initialized"}
-    
-    active_games[game_id] = game_data
-    
-    return {
-        "success": True,
-        "game_id": game_id,
-        "message": f"Created {game_data.game_type} game session"
-    }
-
-@app.post("/api/games/{game_id}/join")
-async def join_game(game_id: str, player_data: dict, current_user: dict = Depends(get_current_user)):
-    """Join a game session"""
-    if game_id not in active_games:
-        raise HTTPException(status_code=404, detail="Game not found")
-    
-    game = active_games[game_id]
-    
-    # Check if player already in game
-    player_id = current_user.get("id")
-    if any(p["id"] == player_id for p in game.players):
-        return {"success": True, "message": "Already in game"}
-    
-    # Add player to game
-    player = {
-        "id": player_id,
-        "name": current_user.get("email", "Player"),
-        "avatar": player_data.get("avatar"),
-        "score": 0,
-        "joined_at": datetime.now().isoformat()
-    }
-    
-    game.players.append(player)
-    
-    # For Mafia, add to alive players
-    if game.game_type == 'mafia' and game_id in mafia_games:
-        mafia_games[game_id].alive_players.append(player_id)
-    
-    return {
-        "success": True,
-        "message": f"Joined {game.game_type} game",
-        "players_count": len(game.players)
-    }
-
-@app.post("/api/games/{game_id}/start")
-async def start_game(game_id: str, current_user: dict = Depends(get_current_user)):
-    """Start a game session with AI referee"""
-    if game_id not in active_games:
-        raise HTTPException(status_code=404, detail="Game not found")
-    
-    game = active_games[game_id]
-    
-    if len(game.players) < 3:
-        raise HTTPException(status_code=400, detail="Need at least 3 players")
-    
-    game.status = 'active'
-    
-    # Initialize game-specific logic
-    if game.game_type == 'mafia':
-        result = await start_mafia_game(game_id)
-        return result
-    
-    return {
-        "success": True,
-        "message": f"Started {game.game_type} game",
-        "game_state": game.game_state
-    }
-
-async def start_mafia_game(game_id: str) -> dict:
-    """Start Mafia game with AI referee role assignment"""
-    game = active_games[game_id]
-    mafia_state = mafia_games[game_id]
-    
-    players = game.players
-    player_count = len(players)
-    
-    # AI-powered role assignment based on player count
-    roles = assign_mafia_roles(player_count)
-    
-    # Assign roles to players
-    for i, player in enumerate(players):
-        role = roles[i % len(roles)]
-        mafia_state.roles[player["id"]] = role
-        player["role"] = role
-        player["isAlive"] = True
-    
-    mafia_state.phase = 'night'
-    mafia_state.day_count = 1
-    mafia_state.game_log.append(f"🌙 Night 1 begins! AI Referee has assigned roles.")
-    
-    # AI referee announcement
-    ai_message = generate_mafia_ai_announcement("game_start", mafia_state, game.players)
-    mafia_state.game_log.append(ai_message)
-    
-    return {
-        "success": True,
-        "message": "Mafia game started! Check your role.",
-        "phase": mafia_state.phase,
-        "ai_message": ai_message,
-        "day_count": mafia_state.day_count
-    }
-
-def assign_mafia_roles(player_count: int) -> List[str]:
-    """AI-powered role assignment for Mafia game"""
-    if player_count < 4:
-        return ["mafia", "detective", "villager", "villager"]
-    elif player_count < 7:
-        return ["mafia", "mafia", "detective", "doctor", "villager", "villager"]
-    else:
-        return ["mafia", "mafia", "detective", "doctor", "bodyguard", "villager", "villager", "villager"]
-
-def generate_mafia_ai_announcement(event_type: str, mafia_state: MafiaGameState, players: List[dict]) -> str:
-    """AI referee generates contextual game announcements"""
-    if event_type == "game_start":
-        return "🎭 Welcome to Mafia! I'm your AI referee. The game has begun. Mafia members, coordinate in secret. Villagers, stay vigilant!"
-    elif event_type == "night_phase":
-        return f"🌙 Night {mafia_state.day_count} falls. Mafia, choose your target. Special roles, make your moves. All others, sleep tight..."
-    elif event_type == "day_phase":
-        return f"☀️ Day {mafia_state.day_count} arrives! Discuss, investigate, and vote wisely. Trust no one completely..."
-    elif event_type == "voting":
-        return "🗳️ Voting time! Make your accusations and cast your votes. The majority decides the fate."
-    else:
-        return "🎮 AI Referee is monitoring the game..."
-
-@app.get("/api/games/{game_id}/state")
-async def get_game_state(game_id: str, current_user: dict = Depends(get_current_user)):
-    """Get current game state"""
-    if game_id not in active_games:
-        raise HTTPException(status_code=404, detail="Game not found")
-    
-    game = active_games[game_id]
-    player_id = current_user.get("id")
-    
-    # For Mafia, return player-specific state (hide other roles)
-    if game.game_type == 'mafia' and game_id in mafia_games:
-        mafia_state = mafia_games[game_id]
-        player_role = mafia_state.roles.get(player_id, "spectator")
-        
-        return {
-            "game": {
-                "id": game.id,
-                "type": game.game_type,
-                "status": game.status,
-                "players": game.players,
-                "current_round": game.current_round
-            },
-            "mafia": {
-                "phase": mafia_state.phase,
-                "day_count": mafia_state.day_count,
-                "alive_players": mafia_state.alive_players,
-                "dead_players": mafia_state.dead_players,
-                "your_role": player_role,
-                "game_log": mafia_state.game_log[-10:],  # Last 10 messages
-                "can_vote": player_id in mafia_state.alive_players and mafia_state.phase == 'voting'
-            }
-        }
-    
-    return {"game": game}
-
-@app.post("/api/games/{game_id}/action")
-async def game_action(game_id: str, action_data: dict, current_user: dict = Depends(get_current_user)):
-    """Perform game action (vote, use ability, etc.)"""
-    if game_id not in active_games:
-        raise HTTPException(status_code=404, detail="Game not found")
-    
-    game = active_games[game_id]
-    player_id = current_user.get("id")
-    action_type = action_data.get("action")
-    
-    if game.game_type == 'mafia':
-        return await handle_mafia_action(game_id, player_id, action_type, action_data)
-    
-    return {"success": False, "message": "Action not supported for this game type"}
-
-async def handle_mafia_action(game_id: str, player_id: str, action_type: str, action_data: dict) -> dict:
-    """Handle Mafia game actions with AI referee"""
-    mafia_state = mafia_games[game_id]
-    
-    if action_type == "vote" and mafia_state.phase == "voting":
-        target = action_data.get("target")
-        mafia_state.votes[player_id] = target
-        
-        # Check if voting is complete
-        alive_count = len(mafia_state.alive_players)
-        votes_count = len(mafia_state.votes)
-        
-        if votes_count >= alive_count:
-            # Process votes with AI referee
-            eliminated = process_votes(mafia_state)
-            if eliminated:
-                mafia_state.alive_players.remove(eliminated)
-                mafia_state.dead_players.append(eliminated)
-                ai_message = f"🔨 {eliminated} has been eliminated by vote! AI Referee confirms the decision."
-                mafia_state.game_log.append(ai_message)
-                
-                # Check win condition
-                winner = check_win_condition(mafia_state)
-                if winner:
-                    active_games[game_id].status = 'completed'
-                    mafia_state.winner = winner
-                    return {"success": True, "winner": winner, "game_over": True}
-            
-            # Move to next phase
-            mafia_state.phase = "night"
-            mafia_state.day_count += 1
-            mafia_state.votes = {}
-        
-        return {"success": True, "message": "Vote recorded"}
-    
-    return {"success": False, "message": "Invalid action"}
-
-def process_votes(mafia_state: MafiaGameState) -> Optional[str]:
-    """Process votes and determine elimination"""
-    if not mafia_state.votes:
-        return None
-    
-    # Count votes
-    vote_counts = {}
-    for target in mafia_state.votes.values():
-        vote_counts[target] = vote_counts.get(target, 0) + 1
-    
-    # Find player with most votes
-    max_votes = max(vote_counts.values())
-    candidates = [player for player, votes in vote_counts.items() if votes == max_votes]
-    
-    # If tie, no elimination (AI referee decides)
-    if len(candidates) > 1:
-        return None
-    
-    return candidates[0]
-
-def check_win_condition(mafia_state: MafiaGameState) -> Optional[str]:
-    """Check if game has ended"""
-    alive_mafia = sum(1 for player_id in mafia_state.alive_players 
-                     if mafia_state.roles.get(player_id) == "mafia")
-    alive_villagers = len(mafia_state.alive_players) - alive_mafia
-    
-    if alive_mafia == 0:
-        return "villagers"
-    elif alive_mafia >= alive_villagers:
-        return "mafia"
-    
-    return None
-
-# Cultural Heritage Endpoints
-@app.post("/api/culture/translate")
-async def translate_content(request: Dict[str, Any]):
-    """Translate content between Arabic and English for cultural preservation"""
-    text = request.get("text", "")
-    source_lang = request.get("sourceLang", "auto")
-    target_lang = request.get("targetLang", "en")
-    
-    # Mock translation service (would integrate with actual translation API)
-    if target_lang == "ar":
-        # English to Arabic
-        translations = {
-            "family": "عائلة",
-            "memory": "ذكرى",
-            "travel": "سفر",
-            "celebration": "احتفال",
-            "home": "بيت",
-            "love": "حب"
-        }
-        
-        translated_text = text
-        for en_word, ar_word in translations.items():
-            translated_text = translated_text.replace(en_word, ar_word)
-    else:
-        # Arabic to English
-        translations = {
-            "عائلة": "family",
-            "ذكرى": "memory", 
-            "سفر": "travel",
-            "احتفال": "celebration",
-            "بيت": "home",
-            "حب": "love"
-        }
-        
-        translated_text = text
-        for ar_word, en_word in translations.items():
-            translated_text = translated_text.replace(ar_word, en_word)
-    
-    return {
-        "originalText": text,
-        "translatedText": translated_text,
-        "sourceLang": source_lang,
-        "targetLang": target_lang,
-        "culturalContext": {
-            "preservedMeaning": True,
-            "culturalNotes": "Translation maintains family context and cultural significance"
-        }
-    }
-
-@app.post("/api/culture/heritage/save")
-async def save_cultural_heritage_content(content: Dict[str, Any]):
-    """Save cultural heritage content with bilingual support"""
-    heritage_id = db.save_cultural_heritage(content)
-    
-    # Return the saved content
-    heritage_items = db.get_cultural_heritage()
-    return next((item for item in heritage_items if item["id"] == heritage_id), None)
-
-@app.get("/api/culture/heritage")
-async def get_cultural_heritage(category: Optional[str] = None):
-    """Get cultural heritage content"""
-    return db.get_cultural_heritage(category)
-
-# Family Photo AI Analysis Function
-async def analyze_family_photo_with_ai(image_path: str, family_context: List[Dict]) -> Dict[str, Any]:
-    """Analyze family photos with face recognition and member linking"""
-    try:
-        # Import FamilyAIAnalyzer
-        from ai_services import FamilyAIAnalyzer
-        
-        # Initialize analyzer
-        analyzer = FamilyAIAnalyzer()
-        
-        # Perform comprehensive family photo analysis
-        analysis_result = await analyzer.analyze_family_photo(image_path, family_context)
-        
-        # Transform results for API response
-        return {
-            "success": True,
-            "analysis": {
-                "faces": analysis_result.get("faces", {}),
-                "emotions": analysis_result.get("emotions", {}), 
-                "family_insights": analysis_result.get("family_insights", {}),
-                "smart_tags": analysis_result.get("scene_analysis", {}).get("suggested_tags", []),
-                "family_members_detected": analysis_result.get("faces", {}).get("family_members_detected", []),
-                "confidence": analysis_result.get("faces", {}).get("confidence", 0.7),
-                "processed_at": analysis_result.get("timestamp")
-            }
-        }
-        
-    except ImportError:
-        # Fallback to family AI service if analyzer not available
-        try:
-            with open(image_path, 'rb') as f:
-                files = {'photo': f}
-                response = requests.post(
-                    f"{FAMILY_AI_URL}/api/analyze-photo",
-                    files=files,
-                    timeout=15
-                )
-                
-                if response.status_code == 200:
-                    result = response.json()
-                    return {
-                        "success": True,
-                        "analysis": {
-                            "faces": {
-                                "count": result.get("faces_detected", 0),
-                                "family_members_detected": result.get("family_members", [])
-                            },
-                            "smart_tags": result.get("suggested_tags", []),
-                            "confidence": 0.8,
-                            "processed_at": result.get("timestamp")
-                        }
-                    }
-        except Exception as service_error:
-            logger.warning(f"Family AI service unavailable: {service_error}")
-        
-        # Final fallback - basic analysis
-        return {
-            "success": True,
-            "analysis": {
-                "faces": {"count": 0, "family_members_detected": []},
-                "smart_tags": ["family", "memory"],
-                "confidence": 0.5,
-                "processed_at": datetime.now().isoformat(),
-                "note": "Basic analysis - full AI features not available"
-            }
-        }
-        
-    except Exception as e:
-        logger.error(f"Family photo analysis failed: {e}")
-        return {
-            "success": False,
-            "error": str(e),
-            "analysis": {}
-        }
-
-# AI Response Generation Function with Real Gemini AI
-async def generate_ai_response(message: str, family_context: List[str], 
-                              family_id: Optional[str] = None) -> tuple[str, List[str]]:
-    """Generate intelligent AI response using Google Gemini AI"""
-    try:
-        if not gemini_model:
-            return "AI service is currently unavailable. Please try again later.", []
-        
-        # Build context for Gemini
-        context_prompt = f"""
-You are an intelligent family assistant for the Elmowafiplatform - a family memory and travel management system.
-
-Family Context:
-{chr(10).join(family_context) if family_context else "No specific family context available"}
-
-Family ID: {family_id or "Not specified"}
-
-Your capabilities:
-- Help with family memory organization and discovery
-- Provide travel planning and recommendations with cultural sensitivity (Arabic/English families)
-- Assist with budget management for family activities
-- Support family tree and relationship management
-- Offer suggestions for family activities and bonding
-
-User Message: {message}
-
-Respond as a helpful, warm family assistant. Be culturally sensitive and support both Arabic and English families. Keep responses concise but informative (2-3 sentences max).
-"""
-
-        # Generate response with Gemini
-        response = gemini_model.generate_content(context_prompt)
-        ai_response = response.text.strip()
-        
-        # Generate contextual suggestions based on the message content
-        suggestions = []
-        user_message = message.lower()
-        
-        if any(word in user_message for word in ["travel", "trip", "vacation", "destination"]):
-            suggestions = ["Get travel recommendations", "Check family budget", "View destinations", "Plan itinerary"]
-        elif any(word in user_message for word in ["memory", "photo", "remember", "picture"]):
-            suggestions = ["Upload new photos", "View memory timeline", "Find similar memories", "Organize photos"]
-        elif any(word in user_message for word in ["budget", "money", "cost", "expense"]):
-            suggestions = ["View budget overview", "Add new expense", "Set budget limits", "Track spending"]
-        elif any(word in user_message for word in ["family", "member", "tree", "relatives"]):
-            suggestions = ["View family tree", "Add family member", "Update relationships", "Family statistics"]
-        else:
-            suggestions = ["Explore memories", "Plan family trip", "Check budget", "View family tree"]
-        
-        return ai_response, suggestions[:4]  # Limit to 4 suggestions
-        
-    except Exception as e:
-        logger.error(f"Gemini AI error: {e}")
-        # Fallback response
-        return "I'm here to help with your family memories, travel planning, and more! How can I assist you today?", ["Upload photos", "Plan trip", "Check budget", "View family"]
-
-# Chat/AI Assistant Endpoints
-class ChatMessage(BaseModel):
-    message: str
-    context: Optional[Dict[str, Any]] = None
-    family_id: Optional[str] = None
-    conversation_id: Optional[str] = None
-
-class ChatResponse(BaseModel):
-    response: str
-    message_id: str
-    timestamp: str
-    confidence: float
-    context_used: List[str]
-    suggestions: List[str]
-
-@app.post("/api/chat", response_model=ChatResponse)
-async def chat_with_ai_assistant(chat_request: ChatMessage, current_user: dict = Depends(get_current_user)):
-    """Chat with family AI assistant"""
-    try:
-        # Generate conversation ID if not provided
-        conversation_id = chat_request.conversation_id or str(uuid.uuid4())
-        message_id = str(uuid.uuid4())
-        timestamp = datetime.now().isoformat()
-        
-        # Get family context if family_id provided
-        family_context = []
-        if chat_request.family_id:
-            try:
-                family_members = data_manager.get_family_members()
-                memories = data_manager.get_memories()
-                family_context = [
-                    f"Family has {len(family_members)} members",
-                    f"Family has {len(memories)} memories stored"
-                ]
-            except Exception as e:
-                logger.warning(f"Could not load family context: {e}")
-        
-        # Generate AI response using family platform server
-        user_message = chat_request.message.lower()
-        response, suggestions = await generate_ai_response(chat_request.message, family_context, chat_request.family_id)
-        
-        # Save conversation to database
-        try:
-            # Save the conversation message to database
-            db.save_chat_message({
-                "conversation_id": conversation_id,
-                "message_id": message_id,
-                "user_message": chat_request.message,
-                "ai_response": response,
-                "timestamp": timestamp,
-                "user_id": current_user.get("id"),
-                "family_id": chat_request.family_id,
-                "confidence": 0.85,
-                "context_used": family_context
-            })
-        except Exception as e:
-            logger.warning(f"Could not save conversation: {e}")
-        
-        return ChatResponse(
-            response=response,
-            message_id=message_id,
-            timestamp=timestamp,
-            confidence=0.85,
-            context_used=family_context[:3],  # Limit context
-            suggestions=suggestions
-        )
-        
-    except Exception as e:
-        logger.error(f"Chat error: {e}")
-        raise HTTPException(status_code=500, detail=f"Chat processing failed: {str(e)}")
-
-@app.get("/api/chat/conversations/{conversation_id}")
-async def get_conversation_history(conversation_id: str, current_user: dict = Depends(get_current_user)):
-    """Get chat conversation history"""
-    try:
-        # Fetch conversation messages from database
-        messages = db.get_chat_messages(conversation_id, current_user.get("id"))
-        
-        if not messages:
-            return {
-                "conversation_id": conversation_id,
-                "messages": [],
-                "created_at": datetime.now().isoformat(),
-                "updated_at": datetime.now().isoformat()
-            }
-        
-        return {
-            "conversation_id": conversation_id,
-            "messages": messages,
-            "created_at": messages[0].get("timestamp") if messages else datetime.now().isoformat(),
-            "updated_at": messages[-1].get("timestamp") if messages else datetime.now().isoformat(),
-            "total_messages": len(messages)
-        }
-    except Exception as e:
-        logger.error(f"Error fetching conversation: {e}")
-        raise HTTPException(status_code=500, detail=f"Could not fetch conversation: {str(e)}")
-
-@app.get("/api/chat/conversations")
-async def get_user_conversations(current_user: dict = Depends(get_current_user)):
-    """Get all user conversations"""
-    try:
-        # Fetch user's conversations from database
-        conversations = db.get_user_conversations(current_user.get("id"))
-        
-        return {
-            "conversations": conversations,
-            "total": len(conversations)
-        }
-    except Exception as e:
-        logger.error(f"Error fetching conversations: {e}")
-        raise HTTPException(status_code=500, detail=f"Could not fetch conversations: {str(e)}")
-
-# WebSocket Endpoints for Real-time Collaboration
-@app.websocket("/ws/family/{family_id}")
-async def websocket_family_endpoint(websocket: WebSocket, family_id: str, user_id: str):
-    """WebSocket endpoint for family collaboration"""
-    connection_id = await websocket_manager.connect(
-        websocket, 
-        user_id, 
-        ConnectionType.FAMILY_MEMBER,
-        {"family_id": family_id}
-    )
-    
-    # Join family room
-    await websocket_manager.join_room(connection_id, "family", family_id)
-    
-    try:
-        while True:
-            # Receive message from client
-            data = await websocket.receive_text()
-            message_data = json.loads(data)
-            
-            # Process the message
-            await websocket_manager.process_message(connection_id, message_data)
-            
-    except WebSocketDisconnect:
-        await websocket_manager.disconnect(connection_id)
-
-@app.websocket("/ws/game/{game_id}")
-async def websocket_game_endpoint(websocket: WebSocket, game_id: str, user_id: str):
-    """WebSocket endpoint for real-time gaming"""
-    connection_id = await websocket_manager.connect(
-        websocket,
-        user_id,
-        ConnectionType.GAME_PLAYER,
-        {"game_id": game_id}
-    )
-    
-    # Join game room
-    await websocket_manager.join_room(connection_id, "game", game_id)
-    
-    try:
-        while True:
-            data = await websocket.receive_text()
-            message_data = json.loads(data)
-            
-            # Process game-specific messages
-            await websocket_manager.process_message(connection_id, message_data)
-            
-            # Also update game state in database if needed
-            if message_data.get("type") == MessageType.PLAYER_ACTION.value:
-                game_session = db.get_game_session(game_id)
-                if game_session and AI_AVAILABLE:
-                    # Process through AI Game Master
-                    result = await ai_game_master.process_game_action(game_id, message_data.get("action", {}))
-                    
-                    # Update database
-                    db.update_game_session(game_id, {
-                        "game_state": result.get("game_state", {}),
-                        "status": result.get("status", "active")
-                    })
-                    
-                    # Broadcast game state update
-                    await websocket_manager.broadcast_to_room("game", game_id, {
-                        "type": MessageType.GAME_STATE_CHANGED.value,
-                        "game_id": game_id,
-                        "game_state": result.get("game_state", {}),
-                        "result": result,
-                        "timestamp": datetime.now().isoformat()
-                    })
-            
-    except WebSocketDisconnect:
-        await websocket_manager.disconnect(connection_id)
-
-@app.websocket("/ws/travel/{travel_plan_id}")
-async def websocket_travel_endpoint(websocket: WebSocket, travel_plan_id: str, user_id: str):
-    """WebSocket endpoint for collaborative travel planning"""
-    connection_id = await websocket_manager.connect(
-        websocket,
-        user_id,
-        ConnectionType.TRAVEL_PLANNER,
-        {"travel_plan_id": travel_plan_id}
-    )
-    
-    # Join travel planning room
-    await websocket_manager.join_room(connection_id, "travel", travel_plan_id)
-    
-    try:
-        while True:
-            data = await websocket.receive_text()
-            message_data = json.loads(data)
-            
-            await websocket_manager.process_message(connection_id, message_data)
-            
-            # Update travel plan in database if needed
-            if message_data.get("type") == MessageType.TRAVEL_PLAN_UPDATED.value:
-                updates = message_data.get("updates", {})
-                success = db.update_travel_plan(travel_plan_id, updates)
-                if success:
-                    # Broadcast successful update
-                    await websocket_manager.broadcast_to_room("travel", travel_plan_id, {
-                        "type": MessageType.TRAVEL_PLAN_UPDATED.value,
-                        "travel_plan_id": travel_plan_id,
-                        "updates": updates,
-                        "updated_by": user_id,
-                        "timestamp": datetime.now().isoformat(),
-                        "success": True
-                    })
-            
-    except WebSocketDisconnect:
-        await websocket_manager.disconnect(connection_id)
-
-@app.websocket("/ws/memory/{memory_id}")
-async def websocket_memory_endpoint(websocket: WebSocket, memory_id: str, user_id: str):
-    """WebSocket endpoint for collaborative memory viewing and commenting"""
-    connection_id = await websocket_manager.connect(
-        websocket,
-        user_id,
-        ConnectionType.MEMORY_VIEWER,
-        {"memory_id": memory_id}
-    )
-    
-    # Join memory room
-    await websocket_manager.join_room(connection_id, "memory", memory_id)
-    
-    try:
-        while True:
-            data = await websocket.receive_text()
-            message_data = json.loads(data)
-            
-            await websocket_manager.process_message(connection_id, message_data)
-            
-    except WebSocketDisconnect:
-        await websocket_manager.disconnect(connection_id)
-
-# WebSocket utility endpoints
-@app.get("/api/ws/rooms/{room_type}/{room_id}/members")
-async def get_room_members(room_type: str, room_id: str):
-    """Get current members in a WebSocket room"""
-    members = websocket_manager.get_room_members(room_type, room_id)
-    return {
-        "room_type": room_type,
-        "room_id": room_id,
-        "members": members,
-        "member_count": len(members)
-    }
-
-@app.get("/api/ws/presence/{user_id}")
-async def get_user_presence(user_id: str):
-    """Get user presence information"""
-    presence = websocket_manager.get_user_presence(user_id)
-    if presence:
-        return presence
-    else:
-        return {
-            "status": "offline",
-            "last_seen": None,
-            "connection_type": None
-        }
-
-@app.get("/api/ws/presence")
-async def get_all_presence():
-    """Get all user presence information"""
-    return websocket_manager.get_all_presence()
-
-@app.post("/api/ws/notify")
-async def send_notification(request: Dict[str, Any]):
-    """Send real-time notification to users"""
-    user_ids = request.get("user_ids", [])
-    message = request.get("message", "")
-    notification_type = request.get("type", "info")
-    
-    notification = {
-        "type": MessageType.NOTIFICATION.value,
-        "notification_type": notification_type,
-        "message": message,
-        "timestamp": datetime.now().isoformat(),
-        "data": request.get("data", {})
-    }
-    
-    success_count = 0
-    for user_id in user_ids:
-        if await websocket_manager.send_to_user(user_id, notification):
-            success_count += 1
-    
-    return {
-        "success": True,
-        "notifications_sent": success_count,
-        "total_users": len(user_ids)
-    }
-
-# Advanced Facial Recognition Endpoints
-@app.post("/api/ai/faces/train")
-async def train_face_recognition(
-    family_member_id: str = Form(...),
-    verified: bool = Form(False),
-    image: UploadFile = File(...)
-):
-    """Add training sample for facial recognition"""
-    if not image.content_type.startswith('image/'):
-        raise HTTPException(status_code=400, detail="File must be an image")
-    
-    # Save uploaded image
-    filename = await save_uploaded_file(image, UPLOAD_DIR)
-    image_path = UPLOAD_DIR / filename
-    
-    # Add training sample
-    result = face_trainer.add_training_sample(
-        family_member_id, 
-        str(image_path), 
-        verified
-    )
-    
-    # Notify family members about training update via WebSocket
-    if result["success"]:
-        family_members = db.get_family_members()
-        member = next((m for m in family_members if m["id"] == family_member_id), None)
-        if member:
-            # Broadcast to family
-            await websocket_manager.broadcast_to_family("main", {
-                "type": MessageType.SYSTEM_MESSAGE.value,
-                "message": f"Face recognition updated for {member['name']}",
-                "data": {
-                    "family_member_id": family_member_id,
-                    "training_result": result
-                },
-                "timestamp": datetime.now().isoformat()
-            })
-    
-    return result
-
-@app.post("/api/ai/faces/identify")
-async def identify_faces_in_image(image: UploadFile = File(...)):
-    """Identify faces in uploaded image using trained model"""
-    if not image.content_type.startswith('image/'):
-        raise HTTPException(status_code=400, detail="File must be an image")
-    
-    # Save uploaded image
-    filename = await save_uploaded_file(image, UPLOAD_DIR)
-    image_path = UPLOAD_DIR / filename
-    
-    # Identify faces
-    results = face_trainer.identify_faces(str(image_path))
-    
-    # Enhance results with family member details
-    family_members = db.get_family_members()
-    enhanced_results = []
-    
-    for result in results:
-        enhanced_result = result.copy()
-        if result.get("family_member_id"):
-            member = next((m for m in family_members if m["id"] == result["family_member_id"]), None)
-            if member:
-                enhanced_result["family_member"] = {
-                    "name": member["name"],
-                    "nameArabic": member["nameArabic"]
-                }
-        enhanced_results.append(enhanced_result)
-    
-    return {
-        "image_path": f"/uploads/{filename}",
-        "faces_detected": len(results),
-        "identification_results": enhanced_results
-    }
-
-@app.get("/api/ai/faces/suggestions/{family_member_id}")
-async def get_training_suggestions(family_member_id: str):
-    """Get training suggestions for improving face recognition"""
-    suggestions = face_trainer.get_training_suggestions(family_member_id)
-    
-    # Add family member details
-    family_members = db.get_family_members()
-    member = next((m for m in family_members if m["id"] == family_member_id), None)
-    if member:
-        suggestions["family_member"] = {
-            "name": member["name"],
-            "nameArabic": member["nameArabic"]
-        }
-    
-    return suggestions
-
-@app.get("/api/ai/faces/analysis")
-async def get_training_analysis():
-    """Get analysis of current facial recognition training quality"""
-    analysis = face_trainer.analyze_training_quality()
-    
-    # Add family member details
-    family_members = db.get_family_members()
-    member_details = {}
-    for member in family_members:
-        member_details[member["id"]] = {
-            "name": member["name"],
-            "nameArabic": member["nameArabic"]
-        }
-    
-    analysis["family_members"] = member_details
-    return analysis
-
-@app.post("/api/ai/faces/retrain")
-async def retrain_face_model():
-    """Manually trigger face recognition model retraining"""
-    result = face_trainer.train_classifier()
-    
-    # Notify family members about retraining
-    if result["success"]:
-        await websocket_manager.broadcast_to_family("main", {
-            "type": MessageType.SYSTEM_MESSAGE.value,
-            "message": f"Face recognition model retrained with {result['accuracy']:.1%} accuracy",
-            "data": result,
-            "timestamp": datetime.now().isoformat()
-        })
-    
-    return result
-
-@app.get("/api/ai/faces/history")
-async def get_training_history():
-    """Get facial recognition training history"""
-    return face_trainer.get_training_history()
-
-@app.delete("/api/ai/faces/{family_member_id}")
-async def remove_face_training_data(family_member_id: str):
-    """Remove all facial recognition training data for a family member"""
-    success = face_trainer.remove_training_samples(family_member_id)
-    
-    if success:
-        # Notify family about removal
-        family_members = db.get_family_members()
-        member = next((m for m in family_members if m["id"] == family_member_id), None)
-        if member:
-            await websocket_manager.broadcast_to_family("main", {
-                "type": MessageType.SYSTEM_MESSAGE.value,
-                "message": f"Face recognition data removed for {member['name']}",
-                "data": {"family_member_id": family_member_id},
-                "timestamp": datetime.now().isoformat()
-            })
-    
-    return {
-        "success": success,
-        "family_member_id": family_member_id
-    }
-
-# Photo Clustering and Album Generation Endpoints
-@app.post("/api/albums/auto-create")
-async def create_automatic_albums(request: Dict[str, Any]):
-    """Create albums automatically using AI clustering"""
-    algorithm = request.get("algorithm", "auto")
-    memory_filters = request.get("filters", {})
-    
-    # Get memories based on filters
-    memories = db.get_memories(memory_filters)
-    
-    if not memories:
-        return {
-            "success": False,
-            "error": "No memories found to cluster",
-            "albums_created": 0
-        }
-    
-    # Create automatic albums
-    result = photo_clustering_engine.create_automatic_albums(memories, algorithm)
-    
-    # Notify family members about new albums
-    if result["success"] and result["albums_created"] > 0:
-        await websocket_manager.broadcast_to_family("main", {
-            "type": MessageType.SYSTEM_MESSAGE.value,
-            "message": f"Created {result['albums_created']} new albums automatically",
-            "data": {
-                "albums_created": result["albums_created"],
-                "algorithm": result["algorithm_used"]
-            },
-            "timestamp": datetime.now().isoformat()
-        })
-    
-    return result
-
-@app.get("/api/albums")
-async def get_albums(album_type: Optional[str] = None):
-    """Get all albums"""
-    albums = photo_clustering_engine.get_albums(album_type)
-    
-    # Enhance albums with memory details and cover images
-    enhanced_albums = []
-    all_memories = db.get_memories()
-    memories_dict = {m["id"]: m for m in all_memories}
-    
-    for album in albums:
-        enhanced_album = album.copy()
-        
-        # Add memory details
-        album_memories = []
-        for memory_id in album["memory_ids"]:
-            if memory_id in memories_dict:
-                album_memories.append(memories_dict[memory_id])
-        
-        enhanced_album["memories"] = album_memories
-        enhanced_album["memory_count"] = len(album_memories)
-        
-        # Add cover image URL
-        if album["cover_memory_id"] and album["cover_memory_id"] in memories_dict:
-            cover_memory = memories_dict[album["cover_memory_id"]]
-            enhanced_album["cover_image_url"] = cover_memory.get("imageUrl")
-        
-        enhanced_albums.append(enhanced_album)
-    
-    return enhanced_albums
-
-@app.get("/api/albums/suggestions")
-async def get_album_suggestions():
-    """Get suggestions for new albums"""
-    memories = db.get_memories()
-    suggestions = photo_clustering_engine.suggest_new_albums(memories)
-    return suggestions
-
-@app.get("/api/albums/clustering-analysis")
-async def get_clustering_analysis():
-    """Analyze memories for clustering potential"""
-    memories = db.get_memories()
-    analysis = photo_clustering_engine.analyze_memories_for_clustering(memories)
-    return analysis
-
-@app.get("/api/albums/history")
-async def get_clustering_history():
-    """Get clustering session history"""
-    return photo_clustering_engine.get_clustering_history()
-
-@app.get("/api/albums/{album_id}")
-async def get_album_details(album_id: str):
-    """Get detailed information about a specific album"""
-    albums = photo_clustering_engine.get_albums()
-    album = next((a for a in albums if a["id"] == album_id), None)
-    
-    if not album:
-        raise HTTPException(status_code=404, detail="Album not found")
-    
-    # Get memory details
-    all_memories = db.get_memories()
-    memories_dict = {m["id"]: m for m in all_memories}
-    
-    album_memories = []
-    for memory_id in album["memory_ids"]:
-        if memory_id in memories_dict:
-            album_memories.append(memories_dict[memory_id])
-    
-    album["memories"] = album_memories
-    album["memory_count"] = len(album_memories)
-    
-    return album
-
-# GPS Location Verification and Travel Games Endpoints
-
-@app.post("/api/games/location/verify")
-async def verify_location(request: LocationVerificationRequest, photo: UploadFile = File(None)):
-    """Verify player location for travel games and challenges"""
-    try:
-        photo_path = None
-        
-        # Save uploaded photo if provided
-        if photo:
-            photo_filename = f"verification_{uuid.uuid4()}_{photo.filename}"
-            photo_path = UPLOAD_DIR / photo_filename
-            
-            async with aiofiles.open(photo_path, 'wb') as f:
-                content = await photo.read()
-                await f.write(content)
-        
-        # Perform GPS verification
-        verification_result = await gps_verifier.verify_location(
-            player_id=request.player_id,
-            game_session_id=request.game_session_id,
-            target_lat=request.target_latitude,
-            target_lon=request.target_longitude,
-            actual_lat=request.actual_latitude,
-            actual_lon=request.actual_longitude,
-            challenge_id=request.challenge_id,
-            photo_evidence=str(photo_path) if photo_path else None,
-            gps_metadata=request.gps_metadata
-        )
-        
-        # Send real-time notification to game participants
-        if verification_result["status"] == "verified":
-            await websocket_manager.broadcast_to_room(
-                f"game_{request.game_session_id}",
-                {
-                    "type": MessageType.GAME_UPDATE.value,
-                    "data": {
-                        "event": "location_verified",
-                        "player_id": request.player_id,
-                        "challenge_id": request.challenge_id,
-                        "verification_result": verification_result
-                    }
-                }
-            )
-        
-        return verification_result
-        
-    except Exception as e:
-        logger.error(f"Error in location verification: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.post("/api/games/location/challenges")
-async def create_location_challenge(challenge: LocationChallenge):
-    """Create a new location-based challenge for travel games"""
-    try:
-        challenge_id = await gps_verifier.create_location_challenge(
-            game_session_id=challenge.game_session_id,
-            challenge_name=challenge.challenge_name,
-            target_location=challenge.target_location,
-            target_lat=challenge.target_latitude,
-            target_lon=challenge.target_longitude,
-            challenge_type=challenge.challenge_type,
-            points_reward=challenge.points_reward,
-            time_limit_minutes=challenge.time_limit_minutes,
-            verification_radius=challenge.verification_radius,
-            requirements=challenge.requirements
-        )
-        
-        if not challenge_id:
-            raise HTTPException(status_code=500, detail="Failed to create challenge")
-        
-        # Notify game participants about new challenge
-        await websocket_manager.broadcast_to_room(
-            f"game_{challenge.game_session_id}",
-            {
-                "type": MessageType.GAME_UPDATE.value,
-                "data": {
-                    "event": "new_challenge",
-                    "challenge_id": challenge_id,
-                    "challenge_name": challenge.challenge_name,
-                    "challenge_type": challenge.challenge_type,
-                    "points_reward": challenge.points_reward
-                }
-            }
-        )
-        
-        challenge_data = challenge.dict()
-        challenge_data["id"] = challenge_id
-        return challenge_data
-        
-    except Exception as e:
-        logger.error(f"Error creating location challenge: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.get("/api/games/{game_session_id}/location/challenges")
-async def get_active_challenges(game_session_id: str):
-    """Get all active location challenges for a game session"""
-    try:
-        challenges = await gps_verifier.get_active_challenges(game_session_id)
-        return {"challenges": challenges}
-        
-    except Exception as e:
-        logger.error(f"Error getting active challenges: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.post("/api/games/location/challenges/{challenge_id}/complete")
-async def complete_location_challenge(
-    challenge_id: str, 
-    verification_request: LocationVerificationRequest,
-    photo: UploadFile = File(None)
-):
-    """Complete a location challenge with verification"""
-    try:
-        # First verify the location
-        photo_path = None
-        if photo:
-            photo_filename = f"challenge_{challenge_id}_{uuid.uuid4()}_{photo.filename}"
-            photo_path = UPLOAD_DIR / photo_filename
-            
-            async with aiofiles.open(photo_path, 'wb') as f:
-                content = await photo.read()
-                await f.write(content)
-        
-        verification_result = await gps_verifier.verify_location(
-            player_id=verification_request.player_id,
-            game_session_id=verification_request.game_session_id,
-            target_lat=verification_request.target_latitude,
-            target_lon=verification_request.target_longitude,
-            actual_lat=verification_request.actual_latitude,
-            actual_lon=verification_request.actual_longitude,
-            challenge_id=challenge_id,
-            photo_evidence=str(photo_path) if photo_path else None,
-            gps_metadata=verification_request.gps_metadata
-        )
-        
-        # Complete the challenge if verification passed
-        completion_result = await gps_verifier.complete_challenge(
-            challenge_id, verification_request.player_id, verification_result
-        )
-        
-        # Notify game participants
-        if completion_result["success"]:
-            await websocket_manager.broadcast_to_room(
-                f"game_{verification_request.game_session_id}",
-                {
-                    "type": MessageType.GAME_UPDATE.value,
-                    "data": {
-                        "event": "challenge_completed",
-                        "player_id": verification_request.player_id,
-                        "challenge_id": challenge_id,
-                        "points_awarded": completion_result["points_awarded"],
-                        "completion_result": completion_result
-                    }
-                }
-            )
-        
-        return {
-            "verification": verification_result,
-            "completion": completion_result
-        }
-        
-    except Exception as e:
-        logger.error(f"Error completing location challenge: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.get("/api/games/location/verification-history")
-async def get_verification_history(
-    player_id: Optional[str] = None,
-    game_session_id: Optional[str] = None,
-    limit: int = 50
-):
-    """Get location verification history"""
-    try:
-        history = await gps_verifier.get_verification_history(
-            player_id=player_id,
-            game_session_id=game_session_id,
-            limit=limit
-        )
-        return {"verifications": history}
-        
-    except Exception as e:
-        logger.error(f"Error getting verification history: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.get("/api/games/location/spoofing-alerts")
-async def get_spoofing_alerts(game_session_id: Optional[str] = None):
-    """Get GPS spoofing detection alerts"""
-    try:
-        # This would query the spoofing detection table
-        # For now, return basic info
-        return {
-            "alerts": [],
-            "spoofing_detection_enabled": gps_verifier.spoofing_detection_enabled,
-            "verification_radius_meters": gps_verifier.verification_radius_meters
-        }
-        
-    except Exception as e:
-        logger.error(f"Error getting spoofing alerts: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.post("/api/games/location/settings")
-async def update_gps_settings(settings: Dict[str, Any]):
-    """Update GPS verification settings"""
-    try:
-        if "verification_radius_meters" in settings:
-            gps_verifier.verification_radius_meters = settings["verification_radius_meters"]
-        
-        if "spoofing_detection_enabled" in settings:
-            gps_verifier.spoofing_detection_enabled = settings["spoofing_detection_enabled"]
-        
-        return {
-            "success": True,
-            "current_settings": {
-                "verification_radius_meters": gps_verifier.verification_radius_meters,
-                "spoofing_detection_enabled": gps_verifier.spoofing_detection_enabled
-            }
-        }
-        
-    except Exception as e:
-        logger.error(f"Error updating GPS settings: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-# WebSocket endpoint for real-time features
-@app.websocket("/ws/{user_id}")
-async def websocket_connection(websocket: WebSocket, user_id: str, family_id: str = "elmowafi_family"):
-    """WebSocket endpoint for real-time communication"""
-    await websocket_endpoint(websocket, user_id, family_id)
-
-# WebSocket status endpoint
-@app.get("/api/realtime/status")
-async def get_realtime_status():
-    """Get real-time connection status"""
-    return connection_manager.get_connection_stats()
-
-# Send notification to user
-@app.post("/api/realtime/notify/{user_id}")
-async def send_notification_to_user(user_id: str, notification: dict):
-    """Send a real-time notification to a specific user"""
-    success = await connection_manager.send_notification(user_id, notification)
-    return {"success": success, "user_id": user_id}
-
-# Data Export/Import endpoints
-@app.post("/api/data/export")
-async def export_family_data(
-    format: str = "json", 
-    family_id: str = "elmowafi_family",
-    current_user: dict = Depends(get_current_user)
-):
-    """Export family data in specified format"""
-    try:
-        result = data_manager.export_all_data(family_id, format)
-        return {"success": True, "export_info": result}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Export failed: {str(e)}")
-
-@app.post("/api/data/import")
-async def import_family_data(
-    import_file: str,
-    merge_strategy: str = "merge",
-    family_id: str = "elmowafi_family",
-    current_user: dict = Depends(get_current_user)
-):
-    """Import family data from file"""
-    try:
-        result = data_manager.import_data(import_file, family_id, merge_strategy)
-        return result
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Import failed: {str(e)}")
-
-@app.post("/api/data/backup")
-async def create_database_backup(current_user: dict = Depends(get_current_user)):
-    """Create a database backup"""
-    try:
-        result = data_manager.backup_database()
-        return result
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Backup failed: {str(e)}")
-
-@app.post("/api/data/restore")
-async def restore_from_backup(
-    backup_file: str,
-    current_user: dict = Depends(get_current_user)
-):
-    """Restore database from backup"""
-    try:
-        result = data_manager.restore_from_backup(backup_file)
-        return result
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Restore failed: {str(e)}")
-
-@app.get("/api/data/exports")
-async def list_data_exports(current_user: dict = Depends(get_current_user)):
-    """List all available data exports"""
-    try:
-        exports = data_manager.list_exports()
-        return {"exports": exports}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to list exports: {str(e)}")
-
-@app.get("/api/data/backups")
-async def list_data_backups(current_user: dict = Depends(get_current_user)):
-    """List all available database backups"""
-    try:
-        backups = data_manager.list_backups()
-        return {"backups": backups}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to list backups: {str(e)}")
-
-@app.delete("/api/data/cleanup")
-async def cleanup_old_files(
-    keep_count: int = 10,
-    current_user: dict = Depends(get_current_user)
-):
-    """Clean up old export and backup files"""
-    try:
-        result = data_manager.cleanup_old_exports(keep_count)
-        return result
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Cleanup failed: {str(e)}")
-
-# Enhanced AI Services Integration
-@app.post("/api/ai/analyze-photo")
-async def analyze_photo_with_ai(
-    file: UploadFile = File(...),
-    family_context: str = Form(None),
-    current_user: dict = Depends(get_current_user)
-):
-    """Comprehensive AI photo analysis including facial recognition and scene analysis"""
-    try:
-        # Save uploaded image temporarily
-        import tempfile
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.jpg') as temp_file:
-            content = await file.read()
-            temp_file.write(content)
-            temp_path = temp_file.name
-        
-        try:
-            # Parse family context
-            family_members = []
-            if family_context:
-                try:
-                    family_members = json.loads(family_context)
-                except:
-                    pass
-            
-            # Perform comprehensive AI analysis
-            analysis_result = await family_ai_analyzer.analyze_family_photo(temp_path, family_members)
-            
-            # Add facial recognition results
-            if FACE_RECOGNITION_AVAILABLE:
-                face_results = face_trainer.identify_faces(temp_path)
-                analysis_result["facial_recognition"] = face_results
-            
-            # Generate insights and suggestions
-            insights = await family_ai_analyzer.generate_family_insights(
-                cv2.imread(temp_path), 
-                family_members
-            )
-            analysis_result["ai_insights"] = insights
-            
-            return {
-                "success": True,
-                "analysis": analysis_result,
-                "file_processed": file.filename,
-                "ai_services_used": [
-                    "scene_analysis",
-                    "face_detection", 
-                    "emotion_detection",
-                    "object_detection",
-                    "facial_recognition" if FACE_RECOGNITION_AVAILABLE else None
-                ]
-            }
-            
-        finally:
-            # Clean up temporary file
-            if os.path.exists(temp_path):
-                os.unlink(temp_path)
-                
-    except Exception as e:
-        logger.error(f"AI photo analysis error: {e}")
-        raise HTTPException(status_code=500, detail=f"AI analysis failed: {str(e)}")
-
-@app.post("/api/ai/train-face-recognition")
-async def train_face_recognition(
-    family_member_id: str = Form(...),
-    file: UploadFile = File(...),
-    verified: bool = Form(False),
-    current_user: dict = Depends(get_current_user)
-):
-    """Train facial recognition system with new family member photos"""
-    try:
-        if not FACE_RECOGNITION_AVAILABLE:
-            raise HTTPException(status_code=503, detail="Facial recognition service not available")
-        
-        # Save uploaded training image
-        training_dir = Path("data/training_images") 
-        training_dir.mkdir(parents=True, exist_ok=True)
-        
-        file_extension = Path(file.filename).suffix
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"{family_member_id}_{timestamp}{file_extension}"
-        file_path = training_dir / filename
-        
-        content = await file.read()
-        with open(file_path, "wb") as f:
-            f.write(content)
-        
-        # Add training sample
-        result = face_trainer.add_training_sample(family_member_id, str(file_path), verified)
-        
-        return {
-            "success": result["success"],
-            "message": "Training sample added successfully" if result["success"] else "Failed to add training sample",
-            "training_result": result,
-            "training_suggestions": face_trainer.get_training_suggestions(family_member_id)
-        }
-        
-    except Exception as e:
-        logger.error(f"Face recognition training error: {e}")
-        raise HTTPException(status_code=500, detail=f"Training failed: {str(e)}")
-
-@app.get("/api/ai/face-recognition-status")
-async def get_face_recognition_status(current_user: dict = Depends(get_current_user)):
-    """Get current status of face recognition training"""
-    try:
-        if not FACE_RECOGNITION_AVAILABLE:
-            return {
-                "available": False,
-                "reason": "face_recognition library not installed"
-            }
-        
-        # Get training analysis
-        analysis = face_trainer.analyze_training_quality()
-        training_history = face_trainer.get_training_history()
-        
-        # Get suggestions for each family member
-        family_members = get_family_members()  # Assume this function exists
-        member_suggestions = {}
-        for member in family_members:
-            member_suggestions[member["id"]] = face_trainer.get_training_suggestions(member["id"])
-        
-        return {
-            "available": True,
-            "training_analysis": analysis,
-            "training_history": training_history[:5],  # Last 5 sessions
-            "member_suggestions": member_suggestions,
-            "recommendations": analysis.get("recommendations", [])
-        }
-        
-    except Exception as e:
-        logger.error(f"Face recognition status error: {e}")
-        return {
-            "available": False,
-            "error": str(e)
-        }
-
-@app.post("/api/ai/smart-album-creation")
-async def create_smart_albums(
-    algorithm: str = "auto",
-    current_user: dict = Depends(get_current_user)
-):
-    """Create smart photo albums using AI clustering"""
-    try:
-        if not PHOTO_CLUSTERING_AVAILABLE:
-            raise HTTPException(status_code=503, detail="Photo clustering service not available")
-        
-        # Get all memories for clustering
-        memories = get_all_memories()  # Assume this function exists
-        
-        # Create automatic albums
-        result = photo_clustering_engine.create_automatic_albums(memories, algorithm)
-        
-        if result["success"]:
-            return {
-                "success": True,
-                "message": f"Created {result['albums_created']} smart albums",
-                "clustering_result": result,
-                "albums": result["albums"]
-            }
-        else:
-            return {
-                "success": False,
-                "error": result.get("error", "Unknown clustering error"),
-                "analysis": result.get("clustering_analysis")
-            }
-            
-    except Exception as e:
-        logger.error(f"Smart album creation error: {e}")
-        raise HTTPException(status_code=500, detail=f"Album creation failed: {str(e)}")
-
-@app.get("/api/ai/album-suggestions")
-async def get_album_suggestions(current_user: dict = Depends(get_current_user)):
-    """Get AI suggestions for new albums"""
-    try:
-        if not PHOTO_CLUSTERING_AVAILABLE:
-            raise HTTPException(status_code=503, detail="Photo clustering service not available")
-        
-        # Get all memories
-        memories = get_all_memories()  # Assume this function exists
-        
-        # Get suggestions
-        suggestions = photo_clustering_engine.suggest_new_albums(memories)
-        
-        return {
-            "success": True,
-            "suggestions": suggestions["suggestions"],
-            "unclustered_count": suggestions["unclustered_count"],
-            "analysis": suggestions.get("clustering_analysis")
-        }
-        
-    except Exception as e:
-        logger.error(f"Album suggestions error: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to get suggestions: {str(e)}")
-
-@app.post("/api/ai/enhance-memory")
-async def enhance_memory_with_ai(
-    memory_id: str,
-    current_user: dict = Depends(get_current_user)
-):
-    """Enhance memory with AI-generated tags, descriptions, and insights"""
-    try:
-        # Get memory data
-        memory = get_memory_by_id(memory_id)  # Assume this function exists
-        if not memory:
-            raise HTTPException(status_code=404, detail="Memory not found")
-        
-        enhancements = {}
-        
-        # If memory has an image, analyze it
-        if memory.get("imageUrl") and os.path.exists(memory["imageUrl"]):
-            analysis = await family_ai_analyzer.analyze_family_photo(
-                memory["imageUrl"], 
-                get_family_members()
-            )
-            enhancements["photo_analysis"] = analysis
-            
-            # Extract AI-suggested tags
-            if analysis.get("ai_insights"):
-                suggested_tags = analysis["ai_insights"].get("suggested_tags", [])
-                enhancements["suggested_tags"] = suggested_tags
-        
-        # Generate smart description if missing
-        if not memory.get("description") or len(memory.get("description", "")) < 10:
-            # Generate description based on available data
-            smart_description = generate_smart_description(memory)
-            enhancements["suggested_description"] = smart_description
-        
-        # Get related memories
-        related_memories = find_related_memories(memory)
-        enhancements["related_memories"] = related_memories[:5]
-        
-        # Generate family insights
-        family_insights = await family_ai_analyzer.generate_family_insights(
-            None, 
-            get_family_members()
-        )
-        enhancements["family_insights"] = family_insights
-        
-        return {
-            "success": True,
-            "memory_id": memory_id,
-            "enhancements": enhancements,
-            "ai_confidence": 0.85
-        }
-        
-    except Exception as e:
-        logger.error(f"Memory enhancement error: {e}")
-        raise HTTPException(status_code=500, detail=f"Enhancement failed: {str(e)}")
-
-@app.get("/api/ai/platform-insights")
-async def get_platform_insights(current_user: dict = Depends(get_current_user)):
-    """Get comprehensive AI insights about family platform usage"""
-    try:
-        insights = {
+            "status": "healthy" if not open_circuits else "degraded",
             "timestamp": datetime.now().isoformat(),
-            "family_statistics": {},
-            "memory_analysis": {},
-            "travel_insights": {},
-            "ai_system_status": {}
-        }
-        
-        # Family statistics
-        family_members = get_family_members()
-        memories = get_all_memories()
-        
-        insights["family_statistics"] = {
-            "total_members": len(family_members),
-            "total_memories": len(memories),
-            "memories_with_images": len([m for m in memories if m.get("imageUrl")]),
-            "memories_with_locations": len([m for m in memories if m.get("location")]),
-            "average_memories_per_month": calculate_monthly_memory_average(memories)
-        }
-        
-        # Memory analysis
-        if memories:
-            memory_analysis = photo_clustering_engine.analyze_memories_for_clustering(memories)
-            insights["memory_analysis"] = memory_analysis
-        
-        # AI system status
-        insights["ai_system_status"] = {
-            "facial_recognition": {
-                "available": FACE_RECOGNITION_AVAILABLE,
-                "trained_people": len(face_trainer.face_encodings) if FACE_RECOGNITION_AVAILABLE else 0,
-                "model_trained": face_trainer.face_classifier is not None if FACE_RECOGNITION_AVAILABLE else False
-            },
-            "photo_clustering": {
-                "available": PHOTO_CLUSTERING_AVAILABLE,
-                "total_albums": len(photo_clustering_engine.get_albums()) if PHOTO_CLUSTERING_AVAILABLE else 0
-            },
-            "smart_features": {
-                "memory_suggestions": True,
-                "travel_planning": True,
-                "family_chat": True
+            "version": "2.0.0",
+            "database": "connected",
+            "open_circuits": open_circuits,
+            "uptime": performance_monitor.get_uptime()
             }
-        }
-        
-        # Generate recommendations
-        recommendations = []
-        if FACE_RECOGNITION_AVAILABLE and face_trainer.face_classifier is None:
-            recommendations.append("Train facial recognition with family photos for better organization")
-        
-        if len(memories) >= 10 and PHOTO_CLUSTERING_AVAILABLE:
-            albums = photo_clustering_engine.get_albums()
-            if len(albums) == 0:
-                recommendations.append("Create smart albums to organize your memories automatically")
-        
-        insights["recommendations"] = recommendations
-        
-        return insights
-        
-    except Exception as e:
-        logger.error(f"Platform insights error: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to generate insights: {str(e)}")
+        except Exception as e:
+        logger.error(f"Health check failed: {e}")
+        capture_exception(e)
+        raise HTTPException(status_code=500, detail="Health check failed")
 
-# Helper functions for AI services
-def get_memory_by_id(memory_id: str) -> Optional[Dict[str, Any]]:
-    """Get memory by ID from the database"""
+# Prometheus metrics endpoint
+@app.get("/metrics")
+async def metrics():
+    """Prometheus metrics endpoint"""
+    return await metrics_endpoint()
+
+# Database health check endpoint
+@app.get("/api/database/health")
+async def database_health_check():
+    """Database health check with detailed pool metrics"""
     try:
-        conn = sqlite3.connect(DATABASE_PATH)
-        conn.row_factory = sqlite3.Row
-        cursor = conn.execute("SELECT * FROM memories WHERE id = ?", (memory_id,))
-        row = cursor.fetchone()
-        conn.close()
+        enhanced_db = get_enhanced_db()
+        pool_health = enhanced_db.get_pool_health()
         
-        if row:
+        return {
+            "status": "healthy" if pool_health["state"] == "healthy" else "degraded",
+            "timestamp": datetime.now().isoformat(),
+            "pool_health": pool_health,
+            "database_url_configured": bool(os.getenv('DATABASE_URL')),
+            "environment": os.getenv('ENVIRONMENT', 'development')
+        }
+    except Exception as e:
+        logger.error(f"Database health check failed: {e}")
+        capture_exception(e)
+        raise HTTPException(status_code=500, detail="Database health check failed")
+
+# Circuit breaker health check endpoint
+@app.get("/api/circuit-breakers/health")
+async def circuit_breaker_health_check():
+    """Circuit breaker health check with detailed metrics"""
+    try:
+        circuit_health = get_circuit_breaker_health()
+        
             return {
-                "id": row["id"],
-                "title": row["title"],
-                "description": row["description"],
-                "date": row["date"],
-                "location": row["location"],
-                "imageUrl": row["image_url"],
-                "familyMembers": json.loads(row["family_members"]) if row["family_members"] else [],
-                "tags": json.loads(row["tags"]) if row["tags"] else [],
-                "created_at": row["created_at"]
-            }
-        return None
+            "status": circuit_health["overall_status"],
+            "timestamp": circuit_health["timestamp"],
+            "total_circuit_breakers": circuit_health["total_circuit_breakers"],
+            "circuit_breakers": circuit_health["circuit_breakers"],
+            "environment": os.getenv('ENVIRONMENT', 'development')
+        }
     except Exception as e:
-        logger.error(f"Error getting memory by ID: {e}")
-        return None
+        logger.error(f"Circuit breaker health check failed: {e}")
+        capture_exception(e)
+        raise HTTPException(status_code=500, detail="Circuit breaker health check failed")
 
-def get_all_memories() -> List[Dict[str, Any]]:
-    """Get all memories from the database"""
+# Performance monitoring endpoint
+@app.get("/api/performance/summary")
+async def performance_summary():
+    """Get comprehensive performance summary"""
     try:
-        conn = sqlite3.connect(DATABASE_PATH)
-        conn.row_factory = sqlite3.Row
-        cursor = conn.execute("SELECT * FROM memories ORDER BY date DESC")
-        memories = []
+        performance_data = performance_monitor.get_performance_summary()
         
-        for row in cursor.fetchall():
-            memory = {
-                "id": row["id"],
-                "title": row["title"],
-                "description": row["description"],
-                "date": row["date"],
-                "location": row["location"],
-                "imageUrl": row["image_url"],
-                "familyMembers": json.loads(row["family_members"]) if row["family_members"] else [],
-                "tags": json.loads(row["tags"]) if row["tags"] else [],
-                "created_at": row["created_at"]
-            }
-            memories.append(memory)
-        
-        conn.close()
-        return memories
+        return {
+            "status": "success",
+            "timestamp": performance_data["timestamp"],
+            "performance": performance_data,
+            "environment": os.getenv('ENVIRONMENT', 'development')
+        }
     except Exception as e:
-        logger.error(f"Error getting all memories: {e}")
-        return []
+        logger.error(f"Performance summary failed: {e}")
+        capture_exception(e)
+        raise HTTPException(status_code=500, detail="Performance summary failed")
 
-def get_family_members() -> List[Dict[str, Any]]:
-    """Get all family members from the database"""
+# Family management endpoints
+@app.post("/api/family/members", response_model=Dict[str, str])
+@rate_limit("api")
+async def create_family_member(
+    member: FamilyMemberCreate, 
+    db: UnifiedDatabase = Depends(get_db),
+    request: Request = None
+):
+    """Create a new family member"""
     try:
-        conn = sqlite3.connect(DATABASE_PATH)
-        conn.row_factory = sqlite3.Row
-        cursor = conn.execute("SELECT * FROM family_members ORDER BY name")
-        members = []
-        
-        for row in cursor.fetchall():
-            member = {
-                "id": row["id"],
-                "name": row["name"],
-                "relationship": row["relationship"],
-                "birthDate": row["birth_date"],
-                "email": row["email"],
-                "phone": row["phone"],
-                "profileImage": row["profile_image"],
-                "created_at": row["created_at"]
-            }
-            members.append(member)
-        
-        conn.close()
+        with performance_monitor.track_api_request(
+            endpoint="/api/family/members",
+            method="POST",
+            duration=0
+        ):
+            member_id = db.create_family_member(member.dict())
+            if member_id:
+                logger.info(f"Family member created: {member_id}")
+                return {"id": member_id, "status": "created"}
+            else:
+                raise HTTPException(status_code=500, detail="Failed to create family member")
+    except Exception as e:
+        logger.error(f"Error creating family member: {e}")
+        capture_exception(e)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+@app.get("/api/family/members", response_model=List[Dict[str, Any]])
+@rate_limit("api")
+async def get_family_members(
+    family_group_id: Optional[str] = None,
+    db: UnifiedDatabase = Depends(get_db)
+):
+    """Get family members"""
+    try:
+        members = db.get_family_members(family_group_id)
         return members
     except Exception as e:
         logger.error(f"Error getting family members: {e}")
-        return []
+        capture_exception(e)
+        raise HTTPException(status_code=500, detail="Internal server error")
 
-def generate_smart_description(memory: Dict[str, Any]) -> str:
-    """Generate AI-enhanced description for a memory"""
+# Memory management endpoints
+@app.post("/api/memories", response_model=Dict[str, str])
+@rate_limit("api")
+async def create_memory(
+    memory: MemoryCreate, 
+    db: UnifiedDatabase = Depends(get_db)
+):
+    """Create a new memory"""
     try:
-        description_parts = []
-        
-        # Add location context
-        if memory.get("location"):
-            description_parts.append(f"A memorable moment captured at {memory['location']}")
-        
-        # Add family context
-        family_members = memory.get("familyMembers", [])
-        if family_members:
-            if len(family_members) == 1:
-                description_parts.append(f"featuring {family_members[0]}")
-            elif len(family_members) == 2:
-                description_parts.append(f"featuring {family_members[0]} and {family_members[1]}")
-            else:
-                description_parts.append(f"featuring {family_members[0]} and {len(family_members) - 1} others")
-        
-        # Add date context
-        if memory.get("date"):
-            try:
-                date_obj = datetime.fromisoformat(memory["date"])
-                season = get_season(date_obj.month)
-                description_parts.append(f"during {season} {date_obj.year}")
-            except:
-                pass
-        
-        # Add tag context
-        tags = memory.get("tags", [])
-        if tags:
-            main_tags = tags[:2]  # Use first 2 tags
-            description_parts.append(f"capturing {', '.join(main_tags)}")
-        
-        if description_parts:
-            return ". ".join(description_parts) + "."
+        memory_id = db.create_memory(memory.dict())
+        if memory_id:
+            # Track business metric
+            performance_monitor.track_business_metric(
+                'memory_created',
+                memory.family_group_id,
+                memory_type=memory.memory_type
+            )
+            logger.info(f"Memory created: {memory_id}")
+            return {"id": memory_id, "status": "created"}
         else:
-            return "A special family moment worth remembering."
-            
+            raise HTTPException(status_code=500, detail="Failed to create memory")
     except Exception as e:
-        logger.error(f"Error generating smart description: {e}")
-        return "A meaningful family memory."
+        logger.error(f"Error creating memory: {e}")
+        capture_exception(e)
+        raise HTTPException(status_code=500, detail="Internal server error")
 
-def get_season(month: int) -> str:
-    """Get season name from month number"""
-    if month in [12, 1, 2]:
-        return "winter"
-    elif month in [3, 4, 5]:
-        return "spring"
-    elif month in [6, 7, 8]:
-        return "summer"
+@app.get("/api/memories", response_model=List[Dict[str, Any]])
+@rate_limit("api")
+async def get_memories(
+    family_group_id: Optional[str] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    memory_type: Optional[str] = None,
+    tags: Optional[List[str]] = None,
+    db: UnifiedDatabase = Depends(get_db)
+):
+    """Get memories with optional filtering"""
+    try:
+        filters = {}
+        if date_from:
+            filters['date_from'] = date_from
+        if date_to:
+            filters['date_to'] = date_to
+        if memory_type:
+            filters['memory_type'] = memory_type
+        if tags:
+            filters['tags'] = tags
+        
+        memories = db.get_memories(family_group_id, filters)
+        return memories
+            except Exception as e:
+        logger.error(f"Error getting memories: {e}")
+        capture_exception(e)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+# Budget management endpoints
+@app.post("/api/budget/profiles", response_model=Dict[str, str])
+@rate_limit("api")
+async def create_budget_profile(
+    profile: BudgetProfileCreate, 
+    db: UnifiedDatabase = Depends(get_db)
+):
+    """Create a new budget profile"""
+    try:
+        profile_id = db.create_budget_profile(profile.dict())
+        if profile_id:
+            logger.info(f"Budget profile created: {profile_id}")
+            return {"id": profile_id, "status": "created"}
+        else:
+            raise HTTPException(status_code=500, detail="Failed to create budget profile")
+        except Exception as e:
+        logger.error(f"Error creating budget profile: {e}")
+        capture_exception(e)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+@app.post("/api/budget/envelopes", response_model=Dict[str, str])
+@rate_limit("api")
+async def create_budget_envelope(
+    envelope: BudgetEnvelopeCreate, 
+    db: UnifiedDatabase = Depends(get_db)
+):
+    """Create a new budget envelope"""
+    try:
+        envelope_id = db.create_budget_envelope(envelope.dict())
+        if envelope_id:
+            logger.info(f"Budget envelope created: {envelope_id}")
+            return {"id": envelope_id, "status": "created"}
+        else:
+            raise HTTPException(status_code=500, detail="Failed to create budget envelope")
+    except Exception as e:
+        logger.error(f"Error creating budget envelope: {e}")
+        capture_exception(e)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+@app.post("/api/budget/transactions", response_model=Dict[str, str])
+@rate_limit("api")
+async def add_budget_transaction(
+    transaction: BudgetTransactionCreate, 
+    db: UnifiedDatabase = Depends(get_db)
+):
+    """Add a new budget transaction"""
+    try:
+        transaction_id = db.add_budget_transaction(transaction.dict())
+        if transaction_id:
+            # Track business metric
+            performance_monitor.track_business_metric(
+                'budget_transaction',
+                transaction_type=transaction.transaction_type
+            )
+            logger.info(f"Budget transaction created: {transaction_id}")
+            return {"id": transaction_id, "status": "created"}
     else:
-        return "autumn"
+            raise HTTPException(status_code=500, detail="Failed to add budget transaction")
+    except Exception as e:
+        logger.error(f"Error adding budget transaction: {e}")
+        capture_exception(e)
+        raise HTTPException(status_code=500, detail="Internal server error")
 
-def find_related_memories(memory: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """Find memories related to the given memory"""
+@app.get("/api/budget/summary/{profile_id}", response_model=Dict[str, Any])
+@rate_limit("api")
+async def get_budget_summary(
+    profile_id: str, 
+    db: UnifiedDatabase = Depends(get_db)
+):
+    """Get budget summary"""
     try:
-        all_memories = get_all_memories()
-        related = []
+        summary = db.get_budget_summary(profile_id)
+        return summary
+    except Exception as e:
+        logger.error(f"Error getting budget summary: {e}")
+        capture_exception(e)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+# Game session endpoints
+@app.post("/api/games/sessions", response_model=Dict[str, str])
+@rate_limit("api")
+async def create_game_session(
+    session: GameSessionCreate, 
+    db: UnifiedDatabase = Depends(get_db)
+):
+    """Create a new game session"""
+    try:
+        session_id = db.create_game_session(session.dict())
+        if session_id:
+            logger.info(f"Game session created: {session_id}")
+            return {"id": session_id, "status": "created"}
+        else:
+            raise HTTPException(status_code=500, detail="Failed to create game session")
+    except Exception as e:
+        logger.error(f"Error creating game session: {e}")
+        capture_exception(e)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+@app.get("/api/games/sessions/active", response_model=List[Dict[str, Any]])
+@rate_limit("api")
+async def get_active_game_sessions(
+    family_group_id: Optional[str] = None,
+    db: UnifiedDatabase = Depends(get_db)
+):
+    """Get active game sessions"""
+    try:
+        sessions = db.get_active_game_sessions(family_group_id)
+        return sessions
+    except Exception as e:
+        logger.error(f"Error getting active game sessions: {e}")
+        capture_exception(e)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+@app.put("/api/games/sessions/{session_id}")
+@rate_limit("api")
+async def update_game_session(
+    session_id: str,
+    updates: Dict[str, Any],
+    db: UnifiedDatabase = Depends(get_db)
+):
+    """Update a game session"""
+    try:
+        success = db.update_game_session(session_id, updates)
+        if success:
+            logger.info(f"Game session updated: {session_id}")
+            return {"status": "updated"}
+        else:
+            raise HTTPException(status_code=404, detail="Game session not found")
+    except Exception as e:
+        logger.error(f"Error updating game session: {e}")
+        capture_exception(e)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+# Travel planning endpoints
+@app.post("/api/travel/plans", response_model=Dict[str, str])
+@rate_limit("api")
+async def create_travel_plan(
+    plan: TravelPlanCreate, 
+    db: UnifiedDatabase = Depends(get_db)
+):
+    """Create a new travel plan"""
+    try:
+        plan_id = db.create_travel_plan(plan.dict())
+        if plan_id:
+            logger.info(f"Travel plan created: {plan_id}")
+            return {"id": plan_id, "status": "created"}
+        else:
+            raise HTTPException(status_code=500, detail="Failed to create travel plan")
+    except Exception as e:
+        logger.error(f"Error creating travel plan: {e}")
+        capture_exception(e)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+@app.get("/api/travel/plans", response_model=List[Dict[str, Any]])
+@rate_limit("api")
+async def get_travel_plans(
+    family_group_id: Optional[str] = None,
+    db: UnifiedDatabase = Depends(get_db)
+):
+    """Get travel plans"""
+    try:
+        plans = db.get_travel_plans(family_group_id)
+        return plans
+    except Exception as e:
+        logger.error(f"Error getting travel plans: {e}")
+        capture_exception(e)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+# Cultural heritage endpoints
+@app.post("/api/cultural-heritage", response_model=Dict[str, str])
+@rate_limit("api")
+async def create_cultural_heritage(
+    heritage: CulturalHeritageCreate, 
+    db: UnifiedDatabase = Depends(get_db)
+):
+    """Create cultural heritage item"""
+    try:
+        heritage_id = db.save_cultural_heritage(heritage.dict())
+        if heritage_id:
+            logger.info(f"Cultural heritage created: {heritage_id}")
+            return {"id": heritage_id, "status": "created"}
+        else:
+            raise HTTPException(status_code=500, detail="Failed to create cultural heritage")
+    except Exception as e:
+        logger.error(f"Error creating cultural heritage: {e}")
+        capture_exception(e)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+@app.get("/api/cultural-heritage", response_model=List[Dict[str, Any]])
+@rate_limit("api")
+async def get_cultural_heritage(
+    family_group_id: Optional[str] = None,
+    category: Optional[str] = None,
+    db: UnifiedDatabase = Depends(get_db)
+):
+    """Get cultural heritage items"""
+    try:
+        heritage = db.get_cultural_heritage(family_group_id, category)
+        return heritage
+    except Exception as e:
+        logger.error(f"Error getting cultural heritage: {e}")
+        capture_exception(e)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+# Dashboard and analytics endpoints
+@app.get("/api/dashboard/{family_group_id}", response_model=Dict[str, Any])
+@rate_limit("api")
+async def get_family_dashboard(
+    family_group_id: str, 
+    db: UnifiedDatabase = Depends(get_db)
+):
+    """Get family dashboard data"""
+    try:
+        dashboard = db.get_family_dashboard(family_group_id)
+        return dashboard
+    except Exception as e:
+        logger.error(f"Error getting family dashboard: {e}")
+        capture_exception(e)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+@app.get("/api/analytics/memories/{family_group_id}", response_model=List[Dict[str, Any]])
+@rate_limit("api")
+async def get_memory_analytics(
+    family_group_id: str, 
+    db: UnifiedDatabase = Depends(get_db)
+):
+    """Get memory analytics"""
+    try:
+        analytics = db.get_memory_analytics(family_group_id)
+        return analytics
+    except Exception as e:
+        logger.error(f"Error getting memory analytics: {e}")
+        capture_exception(e)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+# Photo Upload Endpoints
+@app.post("/api/memories/upload", response_model=Dict[str, Any])
+@rate_limit("upload")
+async def upload_photo(
+    file: UploadFile,
+    family_group_id: str,
+    family_members: Optional[List[str]] = None,
+    album_id: Optional[str] = None,
+    description: Optional[str] = None,
+    tags: Optional[List[str]] = None,
+    privacy_level: str = "family"
+):
+    """Upload and process a photo with family member linking"""
+    try:
+        # Read file data
+        file_data = await file.read()
         
-        for other_memory in all_memories:
-            if other_memory["id"] == memory["id"]:
-                continue
-            
-            similarity_score = 0
-            
-            # Location similarity
-            if memory.get("location") and other_memory.get("location"):
-                if memory["location"] == other_memory["location"]:
-                    similarity_score += 3
-            
-            # Family member similarity
-            memory_members = set(memory.get("familyMembers", []))
-            other_members = set(other_memory.get("familyMembers", []))
-            common_members = memory_members.intersection(other_members)
-            similarity_score += len(common_members)
-            
-            # Tag similarity
-            memory_tags = set(memory.get("tags", []))
-            other_tags = set(other_memory.get("tags", []))
-            common_tags = memory_tags.intersection(other_tags)
-            similarity_score += len(common_tags)
-            
-            # Date proximity (within 30 days gets bonus)
-            if memory.get("date") and other_memory.get("date"):
-                try:
-                    date1 = datetime.fromisoformat(memory["date"])
-                    date2 = datetime.fromisoformat(other_memory["date"])
-                    days_diff = abs((date1 - date2).days)
-                    if days_diff <= 30:
-                        similarity_score += 2
-                    elif days_diff <= 90:
-                        similarity_score += 1
-                except:
-                    pass
-            
-            if similarity_score >= 2:  # Minimum threshold
-                other_memory["similarity_score"] = similarity_score
-                related.append(other_memory)
+        # Get photo upload system
+        photo_system = get_photo_upload_system()
         
-        # Sort by similarity score
-        related.sort(key=lambda x: x["similarity_score"], reverse=True)
-        return related
+        # Upload photo
+        result = await photo_system.upload_photo(
+            file_data=file_data,
+            filename=file.filename,
+            family_group_id=family_group_id,
+            family_members=family_members,
+            album_id=album_id,
+            description=description,
+            tags=tags,
+            privacy_level=privacy_level
+        )
+        
+        if result["success"]:
+            logger.info(f"Photo uploaded successfully: {result['memory_id']}")
+            return result
+        else:
+            raise HTTPException(status_code=400, detail=result["error"])
+            
+    except Exception as e:
+        logger.error(f"Photo upload failed: {e}")
+        capture_exception(e)
+        raise HTTPException(status_code=500, detail="Photo upload failed")
+
+@app.post("/api/albums", response_model=Dict[str, str])
+@rate_limit("api")
+async def create_album(album: AlbumCreateRequest):
+    """Create a new album"""
+    try:
+        album_system = get_album_management()
+        result = album_system.create_album(
+            family_group_id=album.family_group_id,
+            name=album.name,
+            description=album.description,
+            album_type=album.album_type,
+            privacy_level=album.privacy_level,
+            cover_photo_id=album.cover_photo_id
+        )
+        
+        if result["success"]:
+            logger.info(f"Album created: {result['album_id']}")
+            return {"id": result["album_id"], "status": "created"}
+        else:
+            raise HTTPException(status_code=400, detail=result["error"])
         
     except Exception as e:
-        logger.error(f"Error finding related memories: {e}")
-        return []
+        logger.error(f"Album creation failed: {e}")
+        capture_exception(e)
+        raise HTTPException(status_code=500, detail="Album creation failed")
 
-def calculate_monthly_memory_average(memories: List[Dict[str, Any]]) -> float:
-    """Calculate average memories per month"""
+@app.post("/api/memories/{memory_id}/link-family", response_model=Dict[str, Any])
+@rate_limit("api")
+async def link_photo_to_family(link_request: FamilyPhotoLinkRequest):
+    """Link a photo to family members"""
     try:
-        if not memories:
-            return 0.0
+        family_linking = get_family_photo_linking()
+        result = await family_linking.link_photo_to_family_members(
+            memory_id=link_request.memory_id,
+            family_member_ids=link_request.family_member_ids,
+            confidence_scores=link_request.confidence_scores
+        )
         
-        # Get date range
-        dates = [m.get("date") for m in memories if m.get("date")]
-        if not dates:
-            return 0.0
-        
-        dates_sorted = sorted(dates)
-        start_date = datetime.fromisoformat(dates_sorted[0])
-        end_date = datetime.fromisoformat(dates_sorted[-1])
-        
-        # Calculate months difference
-        months_diff = ((end_date.year - start_date.year) * 12 + 
-                      (end_date.month - start_date.month)) + 1
-        
-        return len(memories) / months_diff if months_diff > 0 else len(memories)
+        if result["success"]:
+            logger.info(f"Photo linked to {len(result['linked_members'])} family members")
+            return result
+        else:
+            raise HTTPException(status_code=400, detail=result["error"])
         
     except Exception as e:
-        logger.error(f"Error calculating monthly average: {e}")
-        return 0.0
+        logger.error(f"Family photo linking failed: {e}")
+        capture_exception(e)
+        raise HTTPException(status_code=500, detail="Family photo linking failed")
 
-# Budget Management Endpoints
-@app.get("/api/budget/summary")
-async def get_budget_summary(current_user: dict = Depends(get_current_user)):
-    """Get family budget summary with AI insights"""
+@app.post("/api/memories/{memory_id}/auto-link-faces", response_model=Dict[str, Any])
+@rate_limit("api")
+async def auto_link_faces_in_photo(memory_id: str):
+    """Automatically link faces in photo to family members"""
     try:
-        if not gemini_model:
-            return {"error": "AI service unavailable"}
+        family_linking = get_family_photo_linking()
+        result = await family_linking.auto_link_faces_in_photo(memory_id)
+        
+        if result["success"]:
+            logger.info(f"Auto-linked {result['auto_linked_count']} faces in photo")
+            return result
+        else:
+            raise HTTPException(status_code=400, detail=result["error"])
+        
+    except Exception as e:
+        logger.error(f"Auto face linking failed: {e}")
+        capture_exception(e)
+        raise HTTPException(status_code=500, detail="Auto face linking failed")
+
+# Game State Endpoints
+@app.post("/api/games/create-session", response_model=Dict[str, Any])
+@rate_limit("api")
+async def create_game_session_endpoint(session: GameSessionCreateRequest):
+    """Create a new game session"""
+    try:
+        game_manager = get_game_state_manager()
+        result = await game_manager.create_game_session(
+            family_group_id=session.family_group_id,
+            game_type=session.game_type,
+            title=session.title,
+            description=session.description,
+            players=session.players,
+            settings=session.settings,
+            created_by=session.created_by
+        )
+        
+        if result["success"]:
+            logger.info(f"Game session created: {result['session_id']}")
+            return result
+        else:
+            raise HTTPException(status_code=400, detail=result["error"])
             
-        # For now, return mock data structure - will connect to real budget system
-        mock_data = {
-            "total_budget": 5000.0,
-            "spent": 2800.0,
-            "remaining": 2200.0,
-            "categories": [
-                {"name": "Travel", "budgeted": 2000.0, "spent": 1200.0},
-                {"name": "Activities", "budgeted": 1500.0, "spent": 800.0},
-                {"name": "Food", "budgeted": 1000.0, "spent": 600.0},
-                {"name": "Accommodation", "budgeted": 500.0, "spent": 200.0}
-            ]
-        }
+    except Exception as e:
+        logger.error(f"Game session creation failed: {e}")
+        capture_exception(e)
+        raise HTTPException(status_code=500, detail="Game session creation failed")
+
+@app.post("/api/games/join", response_model=Dict[str, Any])
+@rate_limit("api")
+async def join_game_session(join_request: GameJoinRequest):
+    """Join an existing game session"""
+    try:
+        game_manager = get_game_state_manager()
+        result = await game_manager.join_game_session(
+            session_id=join_request.session_id,
+            player_id=join_request.player_id,
+            player_name=join_request.player_name
+        )
         
-        # Use Gemini to provide budget insights
-        prompt = f"""
-        Analyze this family budget data and provide 2-3 practical insights:
-        Total Budget: ${mock_data['total_budget']}
-        Spent: ${mock_data['spent']}
-        Remaining: ${mock_data['remaining']}
-        Categories: {mock_data['categories']}
+        if result["success"]:
+            logger.info(f"Player {join_request.player_name} joined game {join_request.session_id}")
+            return result
+        else:
+            raise HTTPException(status_code=400, detail=result["error"])
+            
+    except Exception as e:
+        logger.error(f"Join game failed: {e}")
+        capture_exception(e)
+        raise HTTPException(status_code=500, detail="Join game failed")
+
+@app.post("/api/games/start", response_model=Dict[str, Any])
+@rate_limit("api")
+async def start_game_session(session_id: str):
+    """Start a game session"""
+    try:
+        game_manager = get_game_state_manager()
+        result = await game_manager.start_game(session_id)
         
-        Provide brief, actionable insights for a family budget.
-        """
+        if result["success"]:
+            logger.info(f"Game {session_id} started")
+            return result
+            else:
+            raise HTTPException(status_code=400, detail=result["error"])
+            
+    except Exception as e:
+        logger.error(f"Start game failed: {e}")
+        capture_exception(e)
+        raise HTTPException(status_code=500, detail="Start game failed")
+
+@app.post("/api/games/move", response_model=Dict[str, Any])
+@rate_limit("api")
+async def make_game_move(move_request: GameMoveRequest):
+    """Make a move in the game"""
+    try:
+        game_manager = get_game_state_manager()
+        result = await game_manager.make_game_move(
+            session_id=move_request.session_id,
+            player_id=move_request.player_id,
+            move_data=move_request.move_data
+        )
         
-        response = gemini_model.generate_content(prompt)
-        ai_insights = response.text.strip()
+        if result["success"]:
+            logger.info(f"Game move made by {move_request.player_id}")
+            return result
+        else:
+            raise HTTPException(status_code=400, detail=result["error"])
         
+    except Exception as e:
+        logger.error(f"Game move failed: {e}")
+        capture_exception(e)
+        raise HTTPException(status_code=500, detail="Game move failed")
+
+@app.get("/api/games/session/{session_id}", response_model=Dict[str, Any])
+@rate_limit("api")
+async def get_game_session(session_id: str):
+    """Get game session details"""
+    try:
+        game_manager = get_game_state_manager()
+        # This would need to be implemented in the game manager
+        # For now, return a placeholder
         return {
-            **mock_data,
-            "ai_insights": ai_insights,
-            "budget_health": "good" if mock_data['remaining'] > 0 else "warning"
+            "session_id": session_id,
+            "status": "active",
+            "message": "Game session details endpoint - to be implemented"
         }
-        
     except Exception as e:
-        logger.error(f"Budget summary error: {e}")
-        return {"error": "Failed to get budget summary"}
+        logger.error(f"Get game session failed: {e}")
+        capture_exception(e)
+        raise HTTPException(status_code=500, detail="Get game session failed")
 
-@app.post("/api/budget/categories")
-async def create_budget_category(category_data: dict, current_user: dict = Depends(get_current_user)):
-    """Create new budget category"""
+# Production monitoring endpoints
+@app.get("/api/production/status")
+async def get_production_status():
+    """Get production status and metrics"""
     try:
-        # Validate required fields
-        if not category_data.get("name") or not category_data.get("amount"):
-            raise HTTPException(status_code=400, detail="Name and amount are required")
-            
-        category_id = str(uuid.uuid4())
-        category = {
-            "id": category_id,
-            "name": category_data["name"],
-            "amount": category_data["amount"],
-            "spent": 0.0,
-            "created_at": datetime.now().isoformat(),
-            "user_id": current_user.get("id")
-        }
-        
-        return {"success": True, "category": category}
-        
-    except Exception as e:
-        logger.error(f"Create budget category error: {e}")
-        raise HTTPException(status_code=500, detail="Failed to create category")
-
-@app.get("/api/budget/transactions")
-async def get_budget_transactions(current_user: dict = Depends(get_current_user)):
-    """Get budget transactions"""
-    try:
-        # Mock transaction data - will connect to real system
-        transactions = [
-            {
-                "id": str(uuid.uuid4()),
-                "amount": 120.50,
-                "category": "Travel",
-                "description": "Flight booking",
-                "date": "2024-01-15",
-                "type": "expense"
-            },
-            {
-                "id": str(uuid.uuid4()),
-                "amount": 45.00,
-                "category": "Food",
-                "description": "Restaurant dinner",
-                "date": "2024-01-14",
-                "type": "expense"
+        return {
+            "status": "operational",
+            "timestamp": datetime.now().isoformat(),
+            "version": "2.0.0",
+            "environment": os.getenv('ENVIRONMENT', 'development'),
+            "uptime": performance_monitor.get_uptime(),
+            "circuit_breakers": circuit_breaker_manager.get_all_states(),
+            "secrets_valid": validate_production_secrets(),
+            "graceful_shutdown": {
+                "is_shutting_down": graceful_shutdown.is_shutting_down,
+                "handlers_count": len(graceful_shutdown.shutdown_handlers)
             }
-        ]
-        
-        return {"transactions": transactions}
-        
-    except Exception as e:
-        logger.error(f"Get transactions error: {e}")
-        raise HTTPException(status_code=500, detail="Failed to get transactions")
-
-# Gaming System Endpoints
-@app.get("/api/games/rules/{game_name}")
-async def get_game_rules(game_name: str):
-    """Get rules for specific game with AI explanation"""
-    try:
-        if not gemini_model:
-            return {"error": "AI service unavailable"}
-            
-        prompt = f"""
-        Explain the rules for the {game_name} game in a family-friendly way.
-        Focus on how families can play together, including different age groups.
-        Keep it concise but comprehensive.
-        """
-        
-        response = gemini_model.generate_content(prompt)
-        rules_text = response.text.strip()
-        
-        return {
-            "game": game_name,
-            "rules": rules_text,
-            "min_players": 4 if game_name.lower() == "mafia" else 2,
-            "max_players": 12 if game_name.lower() == "mafia" else 8,
-            "duration": "30-60 minutes"
         }
-        
     except Exception as e:
-        logger.error(f"Game rules error: {e}")
-        return {"error": "Failed to get game rules"}
+        logger.error(f"Error getting production status: {e}")
+        capture_exception(e)
+        raise HTTPException(status_code=500, detail="Internal server error")
 
-@app.post("/api/games/location/challenges")
-async def create_location_challenge(challenge_data: dict, current_user: dict = Depends(get_current_user)):
-    """Create location-based challenge"""
-    try:
-        challenge_id = str(uuid.uuid4())
-        challenge = {
-            "id": challenge_id,
-            "title": challenge_data.get("title", "Family Challenge"),
-            "description": challenge_data.get("description", "Complete this challenge together!"),
-            "location": challenge_data.get("location"),
-            "created_by": current_user.get("id"),
-            "created_at": datetime.now().isoformat(),
-            "status": "active"
-        }
-        
-        return {"success": True, "challenge": challenge}
-        
-    except Exception as e:
-        logger.error(f"Create challenge error: {e}")
-        raise HTTPException(status_code=500, detail="Failed to create challenge")
+# Error handling middleware
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    """Global exception handler with error tracking"""
+    logger.error(f"Unhandled exception: {exc}")
+    capture_exception(exc)
+    return JSONResponse(
+        status_code=500,
+        content={"error": "Internal server error", "detail": str(exc)}
+    )
+
+# Startup event
+@app.on_event("startup")
+async def startup_event():
+    """Application startup"""
+    logger.info("Elmowafiplatform Unified API starting up")
+    logger.info(f"Environment: {os.getenv('ENVIRONMENT', 'development')}")
+    logger.info(f"Database URL configured: {'DATABASE_URL' in os.environ}")
+    logger.info(f"Production secrets valid: {validate_production_secrets()}")
+
+# Shutdown event
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Application shutdown"""
+    logger.info("Elmowafiplatform Unified API shutting down")
 
 if __name__ == "__main__":
+    import uvicorn
+    
+    # Get port from environment
+    port = int(os.getenv('PORT', 8000))
+    
+    # Run the application
     uvicorn.run(
         "main:app",
         host="0.0.0.0",
-        port=8000,
-        reload=True,
-        log_level="info"
+        port=port,
+        reload=os.getenv('ENVIRONMENT') == 'development',
+        log_level=os.getenv('LOG_LEVEL', 'info')
     ) 
