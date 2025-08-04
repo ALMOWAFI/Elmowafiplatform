@@ -1,79 +1,36 @@
-# Multi-stage Docker build for Elmowafiplatform API
-# Optimized for production deployment
-
-# Stage 1: Build dependencies
-FROM python:3.11-slim as builder
+FROM python:3.12-slim
 
 # Set environment variables
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1
+ENV PYTHONPATH=/app
+ENV PORT=8000
 
-# Install system dependencies required for building
+# Install system dependencies
 RUN apt-get update && apt-get install -y \
-    build-essential \
-    cmake \
-    pkg-config \
-    libopencv-dev \
-    libdlib-dev \
+    gcc \
+    libpq-dev \
     && rm -rf /var/lib/apt/lists/*
-
-# Create and activate virtual environment
-RUN python -m venv /opt/venv
-ENV PATH="/opt/venv/bin:$PATH"
-
-# Copy requirements and install Python dependencies
-COPY elmowafiplatform-api/requirements.txt .
-RUN pip install --upgrade pip && \
-    pip install -r requirements.txt
-
-# Stage 2: Production image
-FROM python:3.11-slim as production
-
-# Set environment variables
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 \
-    PATH="/opt/venv/bin:$PATH" \
-    PYTHONPATH="/app"
-
-# Install runtime dependencies
-RUN apt-get update && apt-get install -y \
-    libopencv-dev \
-    libglib2.0-0 \
-    libsm6 \
-    libxext6 \
-    libxrender-dev \
-    libgomp1 \
-    && rm -rf /var/lib/apt/lists/*
-
-# Copy virtual environment from builder stage
-COPY --from=builder /opt/venv /opt/venv
-
-# Create app user for security
-RUN groupadd -r appuser && useradd -r -g appuser appuser
 
 # Create application directory
 WORKDIR /app
 
+# Copy requirements first for better Docker layer caching
+COPY requirements.txt .
+
+# Install Python dependencies
+RUN pip install --no-cache-dir -r requirements.txt
+
 # Copy application code
-COPY elmowafiplatform-api/ .
-# Copy hack2 AI services
-COPY hack2/ ./hack2/
+COPY . .
 
-# Create necessary directories with proper permissions
-RUN mkdir -p data uploads logs face_models training_images && \
-    chown -R appuser:appuser /app
-
-# Switch to non-root user
-USER appuser
+# Create necessary directories
+RUN mkdir -p /app/uploads
 
 # Expose port
 EXPOSE 8000
 
 # Health check
-HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
-    CMD python -c "import requests; response = requests.get('http://localhost:8000/api/health'); exit(0) if response.status_code == 200 else exit(1)"
+HEALTHCHECK --interval=30s --timeout=30s --start-period=60s --retries=3 \
+    CMD curl -f http://localhost:8000/api/health || exit 1
 
-# Default command
-CMD ["python", "start.py"]
+# Start the application
+CMD ["python", "main.py"]

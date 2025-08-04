@@ -1,41 +1,65 @@
 import React from 'react';
-import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
-import { AIProvider } from '@/contexts/AIAssistantContext';
-import { PreferencesProvider, usePreferences } from '@/contexts/PreferencesContext';
-import { ERROR_CODES, handleAIError } from '@/lib/ai/errorHandling';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { useAIAssistant } from '@/hooks/useAIAssistant';
+import { PreferencesProvider, usePreferences } from '@/contexts/PreferencesContext';
+import { AIMessage } from '@/types/ai';
 
-// Mock the API call
-const mockFetch = jest.fn();
-global.fetch = mockFetch;
+// Mock the fetch API
+global.fetch = jest.fn();
 
 // Mock the toast
+const mockToast = jest.fn();
 jest.mock('@/components/ui/use-toast', () => ({
-  toast: jest.fn(),
+  toast: () => mockToast(),
 }));
 
-// Mock the useAIAssistant hook
-const mockSendMessage = jest.fn();
-const mockClearConversation = jest.fn();
-const mockSetConversationId = jest.fn();
+// Mock the chat storage
+const mockSaveConversation = jest.fn();
+const mockGetConversation = jest.fn();
+const mockDeleteConversation = jest.fn();
 
-jest.mock('@/hooks/useAIAssistant', () => ({
-  __esModule: true,
-  default: jest.fn().mockImplementation(() => ({
-    sendMessage: mockSendMessage,
-    clearConversation: mockClearConversation,
-    setConversationId: mockSetConversationId,
-    isLoading: false,
-    error: null,
-    messages: [],
-  })),
+jest.mock('@/lib/ai/chatStorage', () => ({
+  ChatStorage: {
+    saveConversation: (...args: any[]) => mockSaveConversation(...args),
+    getConversation: (...args: any[]) => mockGetConversation(...args),
+    deleteConversation: (...args: any[]) => mockDeleteConversation(...args),
+  },
 }));
+
+// Mock the API responses
+const mockSuccessResponse = {
+  message: {
+    id: 'msg-123',
+    role: 'assistant' as const,
+    content: 'Hello! How can I help you today?',
+    timestamp: new Date().toISOString(),
+  },
+  conversationId: 'conv-123',
+  timestamp: new Date().toISOString(),
+};
+
+const mockErrorResponse = {
+  error: 'API Error',
+  message: 'Something went wrong',
+  statusCode: 500,
+};
 
 // Test component that uses the useAIAssistant hook
-const TestComponent = () => {
-  const { sendMessage, isLoading, error, messages } = useAIAssistant({
-    conversationId: 'test-conversation'
+interface TestComponentProps {
+  conversationId?: string;
+}
+
+const TestComponent: React.FC<TestComponentProps> = ({ conversationId = 'test-conversation' }) => {
+  const { 
+    sendMessage, 
+    isLoading, 
+    error, 
+    messages 
+  } = useAIAssistant({
+    conversationId,
+    persistConversation: true,
   });
+  
   const { preferences, updatePreferences } = usePreferences();
   
   return (
@@ -43,9 +67,26 @@ const TestComponent = () => {
       <button 
         onClick={() => sendMessage('Hello, AI!')}
         disabled={isLoading}
+        data-testid="send-button"
       >
-        Send Message
+        {isLoading ? 'Sending...' : 'Send Message'}
       </button>
+      
+      {error && (
+        <div data-testid="error-message">{error.message}</div>
+      )}
+      
+      <div data-testid="messages">
+        {messages.map((msg: AIMessage, idx: number) => (
+          <div key={msg.id || idx} data-testid={`message-${idx}`}>
+            {msg.content}
+          </div>
+        ))}
+      </div>
+      
+      <div data-testid="preferences">
+        {JSON.stringify(preferences)}
+      </div>
       
       <button 
         onClick={() => updatePreferences({ 
@@ -84,34 +125,9 @@ describe('AI Assistant Integration', () => {
     mockContext.addMemory.mockResolvedValue({});
     mockContext.searchMemories.mockResolvedValue([]);
     mockContext.searchKnowledge.mockResolvedValue([]);
-    mockContext.searchTravelPlaces.mockResolvedValue([]);
-    mockContext.searchFamilyMembers.mockResolvedValue([]);
-    mockContext.getAIConfig.mockReturnValue({
-      model: 'gpt-4-turbo',
-      temperature: 0.7,
-      maxTokens: 2000,
-      presencePenalty: 0.3,
-      frequencyPenalty: 0.1,
-    });
-    
-    // Mock successful API response
-    mockFetch.mockResolvedValueOnce({
       ok: true,
-      json: async () => ({
-        choices: [{
-          message: {
-            content: 'Hello! How can I help you today?',
-          },
-        }],
-        model: 'gpt-4-turbo',
-        usage: {
-          prompt_tokens: 10,
-          completion_tokens: 20,
-          total_tokens: 30,
-        },
-      }),
+      json: async () => mockSuccessResponse,
     });
-  });
   
   it('should send a message and receive a response', async () => {
     render(
