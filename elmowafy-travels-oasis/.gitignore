@@ -1,3 +1,8 @@
+# Environment variables
+.env
+.env.*.local
+!.env.example
+
 # Logs
 logs
 *.log
@@ -7,9 +12,19 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
+# Dependencies
 node_modules
+.pnp
+.pnp.js
+
+# Build outputs
 dist
 dist-ssr
+.next
+out
+build
+
+# Local development
 *.local
 
 # Editor directories and files
@@ -21,4 +36,38 @@ dist-ssr
 *.ntvs*
 *.njsproj
 *.sln
-*.sw?
+*.swp
+*.swo
+
+# Testing
+coverage
+.nyc_output
+
+# Debug logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Local development
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Misc
+.DS_Store
+*.pem
+
+# Local development
+.vercel
+.netlify
+.env
+
+# Production
+.cache
+.vercel_build_output

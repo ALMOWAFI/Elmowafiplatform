@@ -16,7 +16,7 @@ import {
   TrendingUp, Heart, Share2, Download, Edit, Trash2,
   CheckCircle, Circle, AlertTriangle, Sparkles, Navigation
 } from 'lucide-react';
-import { authService, travelService } from '@/services/api';
+import { authService, travelService, aiService } from '@/services/api';
 
 interface TravelPlan {
   id: string;
@@ -108,149 +108,59 @@ export const TravelPlanningPage: React.FC = () => {
 
   useEffect(() => {
     loadTravelPlans();
-    loadRecommendations();
   }, []);
+
+  useEffect(() => {
+    if (selectedPlan) {
+      loadRecommendations(selectedPlan.destination);
+    } else {
+      // Load general recommendations if no plan is selected
+      loadRecommendations();
+    }
+  }, [selectedPlan]);
 
   const loadTravelPlans = async () => {
     setLoading(true);
     try {
       const plans = await travelService.getPlans();
-      setTravelPlans(plans.map((plan: any, index: number) => ({
-        id: plan.id || `plan-${index}`,
-        title: plan.title || `Trip ${index + 1}`,
-        destination: plan.destination || 'Dubai',
-        startDate: plan.startDate || '2024-07-01',
-        endDate: plan.endDate || '2024-07-07',
-        budget: plan.budget || 5000,
-        spentAmount: plan.spentAmount || Math.floor(Math.random() * 3000),
-        status: plan.status || 'planning',
-        participants: plan.participants || ['Family'],
-        description: plan.description || '',
-        thumbnail: plan.thumbnail,
-        activities: plan.activities || [],
-        accommodations: plan.accommodations || [],
-        transportation: plan.transportation || [],
-        notes: plan.notes || []
-      })));
+      setTravelPlans(plans);
     } catch (error) {
       console.error('Failed to load travel plans:', error);
-      // Demo data
-      setTravelPlans([
-        {
-          id: '1',
-          title: 'Dubai Family Adventure',
-          destination: 'Dubai, UAE',
-          startDate: '2024-08-01',
-          endDate: '2024-08-07',
-          budget: 8000,
-          spentAmount: 2400,
-          status: 'planning',
-          participants: ['Dad', 'Mom', 'Sarah', 'Ahmed'],
-          description: 'Exploring the wonders of Dubai with the whole family',
-          activities: [
-            {
-              id: 'a1',
-              name: 'Burj Khalifa Visit',
-              type: 'sightseeing',
-              date: '2024-08-02',
-              time: '14:00',
-              location: 'Downtown Dubai',
-              cost: 150,
-              duration: '2 hours',
-              rating: 5,
-              isBooked: true,
-              notes: 'Book tickets in advance'
-            },
-            {
-              id: 'a2',
-              name: 'Desert Safari',
-              type: 'adventure',
-              date: '2024-08-03',
-              time: '15:00',
-              location: 'Arabian Desert',
-              cost: 300,
-              duration: '6 hours',
-              rating: 5,
-              isBooked: false
-            }
-          ],
-          accommodations: [
-            {
-              id: 'h1',
-              name: 'Atlantis The Palm',
-              type: 'resort',
-              checkIn: '2024-08-01',
-              checkOut: '2024-08-07',
-              cost: 2000,
-              location: 'Palm Jumeirah',
-              rating: 5,
-              isBooked: true,
-              amenities: ['Pool', 'Beach', 'Spa', 'Kids Club']
-            }
-          ],
-          transportation: [
-            {
-              id: 't1',
-              type: 'flight',
-              from: 'Home',
-              to: 'Dubai',
-              date: '2024-08-01',
-              time: '08:00',
-              cost: 2400,
-              duration: '4 hours',
-              isBooked: true,
-              confirmationNumber: 'ABC123'
-            }
-          ],
-          notes: ['Passport expires in 2025', 'Need travel insurance']
-        }
-      ]);
+      // In a real app, you'd want to show an error message to the user.
+      setTravelPlans([]);
     } finally {
       setLoading(false);
     }
   };
 
-  const loadRecommendations = async () => {
+  const loadRecommendations = async (destination?: string) => {
     try {
-      const recs = await travelService.getRecommendations();
-      setRecommendations(recs);
+      const context = {
+        location: destination || 'popular destinations',
+        familyMembers: ['family'],
+        budget: selectedPlan?.budget,
+      };
+      const aiRecs = await aiService.getTravelRecommendations(context);
+
+      const formattedRecs = aiRecs.itinerary_suggestions.flatMap(day => 
+        day.activities.map((activity, index) => ({
+          id: `rec-${day.day}-${index}-${Date.now()}`,
+          title: activity,
+          description: `Activity for day ${day.day}`,
+          type: 'activity',
+          location: destination || 'Varied',
+          estimatedCost: day.budget_estimate / day.activities.length, // Approximate cost
+          rating: aiRecs.destination_analysis.family_friendly_rating, 
+          aiReason: aiRecs.destination_analysis.cultural_significance,
+          familyFriendly: true,
+        }))
+      );
+
+
+      setRecommendations(formattedRecs);
     } catch (error) {
-      // Demo recommendations
-      setRecommendations([
-        {
-          id: 'r1',
-          title: 'Dubai Mall Aquarium',
-          description: 'One of the largest suspended aquariums in the world',
-          type: 'activity',
-          location: 'Dubai Mall',
-          estimatedCost: 100,
-          rating: 4.8,
-          aiReason: 'Perfect for families with children who love marine life',
-          familyFriendly: true
-        },
-        {
-          id: 'r2',
-          title: 'Al Hadheerah Desert Restaurant',
-          description: 'Traditional Emirati dining experience in the desert',
-          type: 'restaurant',
-          location: 'Al Sahra Desert Resort',
-          estimatedCost: 200,
-          rating: 4.6,
-          aiReason: 'Authentic cultural experience with entertainment',
-          familyFriendly: true
-        },
-        {
-          id: 'r3',
-          title: 'Dubai Marina Walk',
-          description: 'Scenic waterfront promenade with dining and shopping',
-          type: 'activity',
-          location: 'Dubai Marina',
-          estimatedCost: 0,
-          rating: 4.5,
-          aiReason: 'Free family activity with beautiful views',
-          familyFriendly: true
-        }
-      ]);
+      console.error('Failed to load AI recommendations:', error);
+      setRecommendations([]);
     }
   };
 

@@ -14,6 +14,28 @@ Replace all mock, static, or dummy AI logic in the Elmowafi platform with robust
   - `generateAccommodationSuggestions`
   - `generateDiningRecommendations`
   - `optimizeForFamily`
+
+### n8n Workflow Design: Travel Recommendations API
+
+**Workflow Name:** `Travel Recommendations API`
+
+**Nodes/Flow:**
+1. **HTTP Webhook Trigger**
+   - Receives POST requests from your frontend/backend with parameters: destination, budget, duration, familyMembers, preferences.
+2. **Input Validation/Transformation**
+   - Set or Code node to validate and transform incoming data as needed.
+3. **LLM Integration**
+   - HTTP Request node to call your chosen LLM (OpenAI, Hugging Face, or your own endpoint) with a prompt/template based on the input.
+   - Optionally, add a memory/context node (DB/Sheet) to personalize results.
+4. **Format Output**
+   - Set or Code node to structure the LLM's response into the expected JSON format.
+5. **Webhook Response**
+   - Returns the AI-generated recommendations to the client.
+
+**Optional Enhancements:**
+- **Error Handling:** Add error branches for failed LLM/API calls.
+- **Logging:** Add nodes to log each request/response to a database or Google Sheet for monitoring.
+
   - Any related static activity/travel suggestion logic
 
 ## 2. Memory/Photo Suggestions

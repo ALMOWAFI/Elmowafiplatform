@@ -1,5 +1,8 @@
 // API Service for Elmowafiplatform
-const API_BASE_URL = 'http://localhost:8000/api';
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1';
+
+// AI Service URL for AI-specific endpoints
+const AI_SERVICE_URL = import.meta.env.VITE_AI_SERVICE_URL || 'http://localhost:5000';
 
 // Authentication token management
 let authToken: string | null = localStorage.getItem('authToken');
@@ -15,23 +18,45 @@ export const apiClient = {
     });
     
     if (!response.ok) {
+      // Try to parse the standardized error response
+      try {
+        const errorData = await response.json();
+        if (errorData.error_code && errorData.message) {
+          throw new Error(`${errorData.error}: ${errorData.message} (${errorData.error_code})`);
+        }
+      } catch (parseError) {
+        // Fall back to generic error if parsing fails
+      }
       throw new Error(`HTTP error! status: ${response.status}`);
     }
     
     return response.json();
   },
 
-  post: async (endpoint: string, data: any) => {
-    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+  post: async (endpoint: string, data: any, options: RequestInit = {}) => {
+    // Use AI_SERVICE_URL for AI endpoints, otherwise use API_BASE_URL
+    const baseUrl = endpoint.startsWith('/ai/') ? AI_SERVICE_URL : API_BASE_URL;
+    const response = await fetch(`${baseUrl}${endpoint}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         ...(authToken && { Authorization: `Bearer ${authToken}` }),
+        ...(options.headers || {}),
       },
       body: JSON.stringify(data),
+      ...options,
     });
     
     if (!response.ok) {
+      // Try to parse the standardized error response
+      try {
+        const errorData = await response.json();
+        if (errorData.error_code && errorData.message) {
+          throw new Error(`${errorData.error}: ${errorData.message} (${errorData.error_code})`);
+        }
+      } catch (parseError) {
+        // Fall back to generic error if parsing fails
+      }
       throw new Error(`HTTP error! status: ${response.status}`);
     }
     
@@ -49,6 +74,15 @@ export const apiClient = {
     });
     
     if (!response.ok) {
+      // Try to parse the standardized error response
+      try {
+        const errorData = await response.json();
+        if (errorData.error_code && errorData.message) {
+          throw new Error(`${errorData.error}: ${errorData.message} (${errorData.error_code})`);
+        }
+      } catch (parseError) {
+        // Fall back to generic error if parsing fails
+      }
       throw new Error(`HTTP error! status: ${response.status}`);
     }
     
@@ -65,6 +99,15 @@ export const apiClient = {
     });
     
     if (!response.ok) {
+      // Try to parse the standardized error response
+      try {
+        const errorData = await response.json();
+        if (errorData.error_code && errorData.message) {
+          throw new Error(`${errorData.error}: ${errorData.message} (${errorData.error_code})`);
+        }
+      } catch (parseError) {
+        // Fall back to generic error if parsing fails
+      }
       throw new Error(`HTTP error! status: ${response.status}`);
     }
     
@@ -92,9 +135,27 @@ export const authService = {
     return response;
   },
 
-  logout: () => {
-    authToken = null;
-    localStorage.removeItem('authToken');
+  logout: async () => {
+    try {
+      await apiClient.post('/auth/logout', {});
+    } catch (error) {
+      console.error('Logout error:', error);
+    } finally {
+      authToken = null;
+      localStorage.removeItem('authToken');
+      localStorage.removeItem('refreshToken');
+      localStorage.removeItem('user');
+    }
+  },
+
+  refresh: async (refreshToken: string) => {
+    const response = await apiClient.post('/auth/refresh', { refresh_token: refreshToken });
+    if (response.access_token) {
+      authToken = response.access_token;
+      localStorage.setItem('authToken', authToken);
+      localStorage.setItem('refreshToken', response.refresh_token);
+    }
+    return response;
   },
 
   getCurrentUser: async () => {
@@ -171,6 +232,15 @@ export const memoryService = {
     });
 
     if (!response.ok) {
+      // Try to parse the standardized error response
+      try {
+        const errorData = await response.json();
+        if (errorData.error_code && errorData.message) {
+          throw new Error(`${errorData.error}: ${errorData.message} (${errorData.error_code})`);
+        }
+      } catch (parseError) {
+        // Fall back to generic error if parsing fails
+      }
       throw new Error(`Upload failed! status: ${response.status}`);
     }
 
@@ -243,6 +313,15 @@ export const aiService = {
     });
 
     if (!response.ok) {
+      // Try to parse the standardized error response
+      try {
+        const errorData = await response.json();
+        if (errorData.error_code && errorData.message) {
+          throw new Error(`${errorData.error}: ${errorData.message} (${errorData.error_code})`);
+        }
+      } catch (parseError) {
+        // Fall back to generic error if parsing fails
+      }
       throw new Error(`Training failed! status: ${response.status}`);
     }
 
@@ -262,6 +341,15 @@ export const aiService = {
     });
 
     if (!response.ok) {
+      // Try to parse the standardized error response
+      try {
+        const errorData = await response.json();
+        if (errorData.error_code && errorData.message) {
+          throw new Error(`${errorData.error}: ${errorData.message} (${errorData.error_code})`);
+        }
+      } catch (parseError) {
+        // Fall back to generic error if parsing fails
+      }
       throw new Error(`Identification failed! status: ${response.status}`);
     }
 
@@ -285,6 +373,15 @@ export const aiService = {
     });
 
     if (!response.ok) {
+      // Try to parse the standardized error response
+      try {
+        const errorData = await response.json();
+        if (errorData.error_code && errorData.message) {
+          throw new Error(`${errorData.error}: ${errorData.message} (${errorData.error_code})`);
+        }
+      } catch (parseError) {
+        // Fall back to generic error if parsing fails
+      }
       throw new Error(`Analysis failed! status: ${response.status}`);
     }
 

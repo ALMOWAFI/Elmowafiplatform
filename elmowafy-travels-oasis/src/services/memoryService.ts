@@ -1,4 +1,31 @@
-import { api } from '../lib/api';
+import { apiClient } from './api';
+
+// Simple in-memory cache (can be replaced with Redis in production)
+const cache = new Map<string, { data: any; timestamp: number }>();
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes TTL
+
+// Cache helper functions
+const getFromCache = <T>(key: string): T | null => {
+  const cached = cache.get(key);
+  if (!cached) return null;
+  
+  // Check if cache is expired
+  if (Date.now() - cached.timestamp > CACHE_TTL) {
+    cache.delete(key);
+    return null;
+  }
+  
+  return cached.data as T;
+};
+
+const setToCache = (key: string, data: any): void => {
+  cache.set(key, { data, timestamp: Date.now() });
+};
+
+// Cache keys
+const getCacheKey = (prefix: string, params: Record<string, any> = {}): string => {
+  return `${prefix}:${JSON.stringify(params)}`;
+};
 
 // Types for memory service
 export interface Memory {
@@ -87,6 +114,7 @@ export interface MemoryTimelineResponse {
     limit: number;
     skip: number;
     hasMore: boolean;
+    total: number;
   };
 }
 
@@ -133,39 +161,158 @@ export interface CreateMemoryData {
 
 class MemoryService {
   private baseURL = '/api/v1/memories';
+  
+  /**
+   * Update any cached lists that might include the given memory
+   */
+  private updateCachedLists(updatedMemory: Memory): void {
+    // Update any cached timeline or search results that might include this memory
+    for (const [key, cached] of cache.entries()) {
+      if (key.startsWith('timeline:') || key.startsWith('search:')) {
+        const data = cached.data as MemoryTimelineResponse;
+        if (data?.memories?.some(m => m._id === updatedMemory._id)) {
+          // Update the memory in the cached list
+          data.memories = data.memories.map(mem => 
+            mem._id === updatedMemory._id ? updatedMemory : mem
+          );
+          
+          // Update the timeline entries if they exist
+          if (data.timeline) {
+            for (const memories of Object.values(data.timeline)) {
+              const index = memories.findIndex(m => m._id === updatedMemory._id);
+              if (index !== -1) {
+                memories[index] = updatedMemory;
+              }
+            }
+          }
+          
+          // Update the cache with the modified data
+          cache.set(key, { ...cached, data });
+        }
+      }
+    }
+  }
+  
+  /**
+   * Clear cache entries matching a specific prefix
+   */
+  // Clear cache entries matching a specific prefix
+  private clearCache(prefix: string): void {
+    for (const key of cache.keys()) {
+      if (key.startsWith(prefix)) {
+        cache.delete(key);
+      }
+    }
+  }
 
   /**
    * Get memory timeline with optional filtering
    */
+  /**
+   * Get paginated memory timeline with caching
+   */
   async getTimeline(options: {
     familyMemberId?: string;
-    limit?: number;
-    skip?: number;
-  } = {}): Promise<MemoryTimelineResponse> {
-    const params = new URLSearchParams();
+    limit: number;
+    skip: number;
+    refresh?: boolean;
+  }): Promise<MemoryTimelineResponse> {
+    const cacheKey = getCacheKey('timeline', { 
+      familyMemberId: options.familyMemberId, 
+      limit: options.limit, 
+      skip: options.skip 
+    });
     
-    if (options.familyMemberId) {
-      params.append('familyMemberId', options.familyMemberId);
+    // Return cached data if available and not forcing refresh
+    if (!options.refresh) {
+      const cached = getFromCache<MemoryTimelineResponse>(cacheKey);
+      if (cached) {
+        return cached;
+      }
     }
     
-    if (options.limit) {
-      params.append('limit', options.limit.toString());
-    }
-    
-    if (options.skip) {
-      params.append('skip', options.skip.toString());
-    }
+    const params = new URLSearchParams({
+      limit: options.limit.toString(),
+      skip: options.skip.toString(),
+      ...(options.familyMemberId && { familyMemberId: options.familyMemberId })
+    });
 
-    const response = await api.get(`${this.baseURL}/timeline?${params}`);
-    return response.data.data;
+    try {
+      const response = await apiClient.get(`${this.baseURL}/timeline?${params}`);
+      const result = response.data.data;
+      
+      // Cache the result
+      setToCache(cacheKey, result);
+      
+      return result;
+    } catch (error) {
+      console.error('Error fetching timeline:', error);
+      // Return empty result on error to prevent UI breakage
+      return {
+        memories: [],
+        timeline: {},
+        pagination: {
+          limit: options.limit,
+          skip: options.skip,
+          hasMore: false,
+          total: 0
+        }
+      };
+    }
   }
 
   /**
    * Get a single memory by ID
    */
-  async getMemoryById(id: string): Promise<Memory> {
-    const response = await api.get(`${this.baseURL}/${id}`);
-    return response.data.data.memory;
+  /**
+   * Get a single memory by ID with caching
+   */
+  async getMemoryById(id: string, refresh: boolean = false): Promise<Memory> {
+    const cacheKey = getCacheKey(`memory:${id}`);
+    
+    // Return cached memory if available and not forcing refresh
+    if (!refresh) {
+      const cached = getFromCache<Memory>(cacheKey);
+      if (cached) {
+        return cached;
+      }
+    }
+    
+    try {
+      const response = await apiClient.get(`${this.baseURL}/${id}`);
+      const memory = response.data.data.memory;
+      
+      // Cache the memory
+      setToCache(cacheKey, memory);
+      
+      // Update any cached lists that might include this memory
+      this.updateCachedLists(memory);
+      
+      return memory;
+    } catch (error) {
+      console.error(`Error fetching memory ${id}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Delete a memory by ID
+   */
+  async deleteMemoryById(id: string): Promise<Memory> {
+    const cacheKey = getCacheKey(`memory:${id}`);
+    
+    try {
+      const response = await apiClient.delete(`${this.baseURL}/${id}`);
+      const memory = response.data.data.memory;
+      
+      // Cache the memory
+      setToCache(cacheKey, memory);
+      
+      return memory;
+    } catch (error) {
+      console.error(`Error deleting memory ${id}:`, error);
+      throw error;
+    }
   }
 
   /**
@@ -196,7 +343,7 @@ class MemoryService {
       formData.append('location', JSON.stringify(memoryData.location));
     }
 
-    const response = await api.post(this.baseURL, formData, {
+    const response = await apiClient.post(this.baseURL, formData, {
       headers: {
         'Content-Type': 'multipart/form-data',
       },
@@ -208,6 +355,9 @@ class MemoryService {
   /**
    * Search memories with various filters
    */
+  /**
+   * Search memories with pagination and caching
+   */
   async searchMemories(options: {
     query?: string;
     tags?: string[];
@@ -216,46 +366,97 @@ class MemoryService {
     startDate?: string;
     endDate?: string;
     limit?: number;
-  } = {}): Promise<Memory[]> {
-    const params = new URLSearchParams();
+    skip?: number;
+    refresh?: boolean;
+  } = {}): Promise<{
+    memories: Memory[];
+    pagination: {
+      total: number;
+      limit: number;
+      skip: number;
+      hasMore: boolean;
+    };
+  }> {
+    const cacheKey = getCacheKey('search', { 
+      query: options.query,
+      tags: options.tags,
+      category: options.category,
+      familyMember: options.familyMember,
+      startDate: options.startDate,
+      endDate: options.endDate,
+      limit: options.limit,
+      skip: options.skip
+    });
     
-    if (options.query) {
-      params.append('query', options.query);
+    // Return cached results if available and not forcing refresh
+    if (!options.refresh) {
+      const cached = getFromCache<{
+        memories: Memory[];
+        pagination: {
+          total: number;
+          limit: number;
+          skip: number;
+          hasMore: boolean;
+        };
+      }>(cacheKey);
+      
+      if (cached) {
+        return cached;
+      }
     }
     
-    if (options.tags && options.tags.length > 0) {
-      params.append('tags', options.tags.join(','));
-    }
+    const params = new URLSearchParams({
+      ...(options.query && { q: options.query }),
+      ...(options.tags && { tags: options.tags.join(',') }),
+      ...(options.category && { category: options.category }),
+      ...(options.familyMember && { familyMember: options.familyMember }),
+      ...(options.startDate && { startDate: options.startDate }),
+      ...(options.endDate && { endDate: options.endDate }),
+      limit: (options.limit || 20).toString(),
+      skip: (options.skip || 0).toString()
+    });
     
-    if (options.category) {
-      params.append('category', options.category);
+    try {
+      const response = await apiClient.get(`${this.baseURL}/search?${params}`);
+      const result = {
+        memories: response.data.data.memories || [],
+        pagination: {
+          total: response.data.data.total || 0,
+          limit: options.limit || 20,
+          skip: options.skip || 0,
+          hasMore: (options.skip || 0) + (options.limit || 20) < (response.data.data.total || 0)
+        }
+      };
+      
+      // Cache the result
+      setToCache(cacheKey, result);
+      
+      // Cache individual memories
+      result.memories.forEach((memory: Memory) => {
+        setToCache(`memory:${memory._id}`, memory);
+      });
+      
+      return result;
+    } catch (error) {
+      console.error('Error searching memories:', error);
+      // Return empty result on error to prevent UI breakage
+      return {
+        memories: [],
+        pagination: {
+          total: 0,
+          limit: options.limit || 20,
+          skip: options.skip || 0,
+          hasMore: false
+        }
+      };
     }
-    
-    if (options.familyMember) {
-      params.append('familyMember', options.familyMember);
-    }
-    
-    if (options.startDate) {
-      params.append('startDate', options.startDate);
-    }
-    
-    if (options.endDate) {
-      params.append('endDate', options.endDate);
-    }
-    
-    if (options.limit) {
-      params.append('limit', options.limit.toString());
-    }
-
-    const response = await api.get(`${this.baseURL}/search?${params}`);
-    return response.data.data.memories;
   }
 
   /**
    * Like or unlike a memory
    */
   async toggleLike(memoryId: string): Promise<{ liked: boolean; likeCount: number }> {
-    const response = await api.post(`${this.baseURL}/${memoryId}/like`);
+    const response = await apiClient.post(`${this.baseURL}/${memoryId}/like`, {});
     return response.data.data;
   }
 
@@ -266,7 +467,7 @@ class MemoryService {
     comments: Memory['comments'];
     commentCount: number;
   }> {
-    const response = await api.post(`${this.baseURL}/${memoryId}/comment`, { text });
+    const response = await apiClient.post(`${this.baseURL}/${memoryId}/comments`, { text });
     return response.data.data;
   }
 
@@ -274,7 +475,7 @@ class MemoryService {
    * Get memory statistics
    */
   async getStats(): Promise<MemoryStats> {
-    const response = await api.get(`${this.baseURL}/stats/overview`);
+    const response = await apiClient.get(`${this.baseURL}/stats`);
     return response.data.data;
   }
 
@@ -285,33 +486,31 @@ class MemoryService {
     startDate: string,
     endDate: string,
     familyMemberId?: string
-  ): Promise<Memory[]> {
-    const params = new URLSearchParams();
-    params.append('startDate', startDate);
-    params.append('endDate', endDate);
-    
-    if (familyMemberId) {
-      params.append('familyMember', familyMemberId);
-    }
+  ): Promise<{ memories: Memory[] }> {
+    const params = new URLSearchParams({
+      startDate,
+      endDate,
+      ...(familyMemberId && { familyMember: familyMemberId })
+    });
 
-    const response = await api.get(`${this.baseURL}/search?${params}`);
-    return response.data.data.memories;
+    const response = await apiClient.get(`${this.baseURL}/date-range?${params}`);
+    return { memories: response.data.data.memories };
   }
 
   /**
    * Get memories by category
    */
-  async getMemoriesByCategory(category: string, limit = 20): Promise<Memory[]> {
-    const response = await api.get(`${this.baseURL}/search?category=${category}&limit=${limit}`);
-    return response.data.data.memories;
+  async getMemoriesByCategory(category: string, limit = 20): Promise<{ memories: Memory[] }> {
+    const response = await apiClient.get(`${this.baseURL}/category/${category}?limit=${limit}`);
+    return { memories: response.data.data.memories };
   }
 
   /**
    * Get memories for a specific family member
    */
-  async getMemoriesForFamilyMember(memberId: string, limit = 50): Promise<Memory[]> {
-    const response = await api.get(`${this.baseURL}/timeline?familyMemberId=${memberId}&limit=${limit}`);
-    return response.data.data.memories;
+  async getMemoriesForFamilyMember(memberId: string, limit = 50): Promise<{ memories: Memory[] }> {
+    const response = await apiClient.get(`${this.baseURL}/timeline?familyMemberId=${memberId}&limit=${limit}`);
+    return { memories: response.data.data.memories };
   }
 
   /**
@@ -382,11 +581,17 @@ class MemoryService {
       });
     }
 
-    const response = await api.get(`${this.baseURL}/export?${params}`, {
-      responseType: 'blob'
+    const response = await fetch(`${this.baseURL}/export?${params}`, {
+      headers: {
+        'Content-Type': 'application/json',
+      },
     });
     
-    return response.data;
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    
+    return await response.blob();
   }
 }
 

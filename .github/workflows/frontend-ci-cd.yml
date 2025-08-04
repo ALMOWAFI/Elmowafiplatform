@@ -1,0 +1,96 @@
+name: Frontend CI/CD
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'elmowafy-travels-oasis/**'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'elmowafy-travels-oasis/**'
+
+env:
+  NODE_VERSION: '18.x'
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    environment: test
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Use Node.js ${{ env.NODE_VERSION }}
+      uses: actions/setup-node@v3
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
+    
+    - name: Install dependencies
+      working-directory: ./elmowafy-travels-oasis
+      run: npm ci
+      
+    - name: Run tests
+      working-directory: ./elmowafy-travels-oasis
+      run: npm test
+      env:
+        CI: true
+        
+    - name: Run security audit
+      working-directory: ./elmowafy-travels-oasis
+      run: npm audit --audit-level=high
+      continue-on-error: true  # Don't fail the build on audit failures
+      
+    - name: Build production
+      working-directory: ./elmowafy-travels-oasis
+      run: npm run build
+      env:
+        VITE_API_URL: ${{ secrets.VITE_API_URL }}
+        VITE_AI_SERVICE_URL: ${{ secrets.VITE_AI_SERVICE_URL }}
+
+  deploy-staging:
+    name: Deploy to Staging
+    needs: test
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: staging
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Deploy to Railway
+      uses: railwayapp/action@v1.0.0
+      with:
+        service: frontend
+        environment: staging
+        token: ${{ secrets.RAILWAY_TOKEN }}
+        projectId: ${{ secrets.RAILWAY_PROJECT_ID }}
+        environmentId: ${{ secrets.RAILWAY_STAGING_ENV_ID }}
+
+  deploy-production:
+    name: Deploy to Production
+    needs: [test, deploy-staging]
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Wait for approval
+      uses: trstringer/manual-approval@v1
+      with:
+        secret: ${{ github.token }}
+        approvers: ${{ secrets.APPROVERS || github.actor }}
+        minimum-approvals: 1
+    
+    - name: Deploy to Railway
+      uses: railwayapp/action@v1.0.0
+      with:
+        service: frontend
+        environment: production
+        token: ${{ secrets.RAILWAY_TOKEN }}
+        projectId: ${{ secrets.RAILWAY_PROJECT_ID }}
+        environmentId: ${{ secrets.RAILWAY_PRODUCTION_ENV_ID }}

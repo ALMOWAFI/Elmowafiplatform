@@ -6,6 +6,7 @@ import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
 import { Toaster } from '@/components/ui/toaster';
 import { Loader2 } from 'lucide-react';
 import { LanguageProvider } from '@/context/LanguageContext';
+import { AuthProvider } from '@/contexts/AuthContext';
 
 // Eager load critical components
 import Navbar from './components/Navbar';
@@ -85,8 +86,9 @@ function App() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <LanguageProvider>
-        <Router>
+      <AuthProvider>
+        <LanguageProvider>
+          <Router>
           <div className="min-h-screen bg-gray-50">
             {/* Navigation */}
             <Navbar />
@@ -119,8 +121,9 @@ function App() {
             {/* Toast notifications */}
             <Toaster />
           </div>
-        </Router>
-      </LanguageProvider>
+          </Router>
+        </LanguageProvider>
+      </AuthProvider>
       
       {/* React Query DevTools (only in development) */}
       {process.env.NODE_ENV === 'development' && (

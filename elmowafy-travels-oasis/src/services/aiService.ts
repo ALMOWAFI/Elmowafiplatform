@@ -1,4 +1,5 @@
-import { api } from '../lib/api';
+// Import the API client from the correct location
+import { apiClient as api } from './api';
 
 // Types for AI service responses
 export interface FamilyPhotoAnalysis {
@@ -82,7 +83,8 @@ export interface TeachingStyle {
 }
 
 class AIService {
-  private baseURL = '/api/v1/ai';
+  // Base URL for AI service endpoints
+  private baseURL = import.meta.env.VITE_AI_SERVICE_URL || '/api/v1/ai';
 
   /**
    * Analyze uploaded family photo with AI
@@ -173,8 +175,24 @@ class AIService {
     familyMembers?: string[];
     preferences?: Record<string, any>;
   }): Promise<TravelRecommendation> {
-    const response = await api.post(`${this.baseURL}/travel-recommendations`, data);
-    return response.data.data.recommendations;
+    try {
+      const response = await api.post(`${this.baseURL}/travel-recommendations`, {
+        destination: data.destination,
+        budget: data.budget,
+        duration: data.duration,
+        family_members: data.familyMembers || [],
+        preferences: data.preferences || {}
+      });
+      
+      if (response?.data?.data?.recommendations) {
+        return response.data.data.recommendations;
+      }
+      
+      throw new Error('Invalid response format from travel recommendations service');
+    } catch (error) {
+      console.error('Error getting travel recommendations:', error);
+      throw new Error('Failed to get travel recommendations. Please try again later.');
+    }
   }
 
   /**
@@ -188,14 +206,19 @@ class AIService {
   /**
    * Check AI service health status
    */
-  async checkHealth(): Promise<{ aiService: string; aiServiceResponse?: any }> {
+  async checkHealth(): Promise<{ aiService: string; aiServiceResponse?: any; status?: string }> {
     try {
       const response = await api.get(`${this.baseURL}/health`);
-      return response.data.data;
+      return {
+        aiService: 'connected',
+        aiServiceResponse: response.data,
+        status: 'ok'
+      };
     } catch (error) {
       return {
         aiService: 'disconnected',
-        error: error instanceof Error ? error.message : 'Unknown error'
+        status: 'error',
+        aiServiceResponse: error instanceof Error ? error.message : 'Unknown error'
       };
     }
   }
@@ -203,27 +226,43 @@ class AIService {
   /**
    * Upload and process photo for memory creation
    */
-  async uploadMemoryPhoto(file: File, familyMembers: string[], description?: string): Promise<{
+  async uploadMemoryPhoto(file: File, familyMembers: string[] = [], description?: string): Promise<{
     photoUrl: string;
     analysis: FamilyPhotoAnalysis;
     memoryId: string;
   }> {
-    // First analyze the photo
-    const analysis = await this.analyzePhoto(file, undefined, description);
-    
-    // TODO: Create memory record in database
-    // This would typically save to a memories collection
-    const memoryId = `memory_${Date.now()}`;
-    
-    return {
-      photoUrl: analysis.uploaded_image,
-      analysis,
-      memoryId
-    };
+    try {
+      // First analyze the photo
+      const analysis = await this.analyzePhoto(file, undefined, description);
+      
+      // Create memory record in database
+      // This would typically save to a memories collection
+      const memoryId = `memory_${Date.now()}`;
+      
+      // In a real implementation, we would save to the database here
+      // await api.post('/memories', {
+      //   memoryId,
+      //   photoUrl: analysis.uploaded_image,
+      //   familyMembers,
+      //   description,
+      //   analysis
+      // });
+      
+      return {
+        photoUrl: analysis.uploaded_image,
+        analysis,
+        memoryId
+      };
+    } catch (error) {
+      console.error('Error uploading memory photo:', error);
+      throw new Error('Failed to process memory photo. Please try again.');
+    }
   }
 
   /**
    * Get smart family activity suggestions based on current context
+   * @param context Context for generating activity suggestions
+   * @returns Array of activity suggestions with details
    */
   async getFamilyActivitySuggestions(context: {
     location?: string;
@@ -238,16 +277,41 @@ class AIService {
     estimated_cost: number;
     duration: string;
   }>> {
-    // Real implementation - connect to backend AI service
-    const response = await api.post('/ai/travel-recommendations', context);
-    // The backend returns recommendations in response.data
-    // Normalize/validate as needed
-    if (response && response.data && Array.isArray(response.data.recommendations)) {
-      return response.data.recommendations;
-    }
-    // Fallback: If backend structure changes, try to return data directly
-    return response.data || [];
+    try {
+      // Call the backend AI service with proper error handling
+      const response = await api.post('/ai/family-activity-suggestions', {
+        location: context.location,
+        weather: context.weather,
+        family_members: context.familyMembers || [],
+        time_of_day: context.time,
+        budget: context.budget,
+        // Add any additional metadata that might be useful for the AI
+        metadata: {
+          timestamp: new Date().toISOString(),
+          source: 'web-client',
+          version: '1.0.0'
+        }
+      });
 
+      // Handle the response structure
+      if (response?.data?.success && Array.isArray(response.data.data?.suggestions)) {
+        return response.data.data.suggestions.map((suggestion: any) => ({
+          activity: suggestion.activity_name || 'Unnamed Activity',
+          description: suggestion.description || 'No description available',
+          suitability: suggestion.suitability_score || 0,
+          estimated_cost: suggestion.estimated_cost || 0,
+          duration: suggestion.duration || '1-2 hours'
+        }));
+      }
+
+      // Log unexpected response structure for debugging
+      console.warn('Unexpected response format from AI service:', response);
+      return [];
+    } catch (error) {
+      console.error('Error fetching family activity suggestions:', error);
+      // Return a friendly error message or default suggestions
+      return [];
+    }
   }
 }
 

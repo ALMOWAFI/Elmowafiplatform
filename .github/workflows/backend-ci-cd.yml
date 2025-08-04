@@ -1,0 +1,160 @@
+name: Backend CI/CD
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'backend/**'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'backend/**'
+
+env:
+  PYTHON_VERSION: '3.10'
+  POSTGRES_VERSION: '14'
+  REDIS_VERSION: '7'
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    environment: test
+    
+    services:
+      postgres:
+        image: postgres:${{ env.POSTGRES_VERSION }}
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:${{ env.REDIS_VERSION }}
+        ports:
+          - 6379:6379
+        options: --health-cmd "redis-cli ping" --health-interval 10s --health-timeout 5s --health-retries 5
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Python ${{ env.PYTHON_VERSION }}
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+        cache: 'pip'
+    
+    - name: Install dependencies
+      working-directory: ./backend
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements-dev.txt
+        pip install -e .
+    
+    - name: Run tests with coverage
+      working-directory: ./backend
+      env:
+        DATABASE_URL: postgresql://test:test@localhost:5432/test
+        REDIS_URL: redis://localhost:6379/0
+        JWT_SECRET: test-secret
+      run: |
+        pytest --cov=./ --cov-report=xml --cov-report=term
+        
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./backend/coverage.xml
+        fail_ci_if_error: false
+
+    - name: Run security audit
+      uses: pyupio/safety-ci@v1.4.1
+      with:
+        api-key: ${{ secrets.SAFETY_API_KEY }}
+        continue-on-vulnerability: true
+      
+    - name: Build Docker image
+      working-directory: ./backend
+      run: docker build -t elmowafy-backend:test .
+
+  deploy-staging:
+    name: Deploy to Staging
+    needs: test
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: staging
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Login to Docker Hub
+      uses: docker/login-action@v2
+      with:
+        username: ${{ secrets.DOCKERHUB_USERNAME }}
+        password: ${{ secrets.DOCKERHUB_TOKEN }}
+    
+    - name: Build and push Docker image
+      uses: docker/build-push-action@v4
+      with:
+        context: ./backend
+        push: true
+        tags: ${{ secrets.DOCKERHUB_USERNAME }}/elmowafy-backend:staging
+        build-args: |
+          ENVIRONMENT=staging
+    
+    - name: Deploy to Railway
+      uses: railwayapp/action@v1.0.0
+      with:
+        service: backend
+        environment: staging
+        token: ${{ secrets.RAILWAY_TOKEN }}
+        projectId: ${{ secrets.RAILWAY_PROJECT_ID }}
+        environmentId: ${{ secrets.RAILWAY_STAGING_ENV_ID }}
+
+  deploy-production:
+    name: Deploy to Production
+    needs: [test, deploy-staging]
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Wait for approval
+      uses: trstringer/manual-approval@v1
+      with:
+        secret: ${{ github.token }}
+        approvers: ${{ secrets.APPROVERS || github.actor }}
+        minimum-approvals: 1
+    
+    - name: Login to Docker Hub
+      uses: docker/login-action@v2
+      with:
+        username: ${{ secrets.DOCKERHUB_USERNAME }}
+        password: ${{ secrets.DOCKERHUB_TOKEN }}
+    
+    - name: Build and push Docker image
+      uses: docker/build-push-action@v4
+      with:
+        context: ./backend
+        push: true
+        tags: |
+          ${{ secrets.DOCKERHUB_USERNAME }}/elmowafy-backend:production
+          ${{ secrets.DOCKERHUB_USERNAME }}/elmowafy-backend:latest
+        build-args: |
+          ENVIRONMENT=production
+    
+    - name: Deploy to Railway
+      uses: railwayapp/action@v1.0.0
+      with:
+        service: backend
+        environment: production
+        token: ${{ secrets.RAILWAY_TOKEN }}
+        projectId: ${{ secrets.RAILWAY_PROJECT_ID }}
+        environmentId: ${{ secrets.RAILWAY_PRODUCTION_ENV_ID }}
