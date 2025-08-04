@@ -6,7 +6,7 @@ pydantic==2.5.0
 
 # Database dependencies
 psycopg2-binary==2.9.9
-sqlite3 # Kept for migration script, though not primary DB
+# sqlite3 is built into Python, no need to install
 
 # AI and ML dependencies
 opencv-python==4.8.1.78
@@ -28,7 +28,7 @@ azure-ai-translation-text==1.0.0
 # HTTP and async dependencies
 aiohttp==3.9.1
 httpx==0.25.2
-asyncio # Still present, though noted as unused in unified_database.py
+# asyncio is built into Python
 
 # Authentication and security
 python-jose[cryptography]==3.3.0
@@ -91,5 +91,4 @@ websockets==12.0
 redis==5.0.1
 
 # Game state management
-uuid # Built-in Python module
-random # Built-in Python module 
+# uuid and random are built into Python 
