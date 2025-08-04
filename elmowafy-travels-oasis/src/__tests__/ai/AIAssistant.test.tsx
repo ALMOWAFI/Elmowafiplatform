@@ -1,9 +1,9 @@
 import React from 'react';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
-import { useAIAssistant } from '@/hooks/useAIAssistant';
 import { AIProvider } from '@/contexts/AIAssistantContext';
 import { PreferencesProvider, usePreferences } from '@/contexts/PreferencesContext';
 import { ERROR_CODES, handleAIError } from '@/lib/ai/errorHandling';
+import { useAIAssistant } from '@/hooks/useAIAssistant';
 
 // Mock the API call
 const mockFetch = jest.fn();
@@ -14,26 +14,28 @@ jest.mock('@/components/ui/use-toast', () => ({
   toast: jest.fn(),
 }));
 
-// Mock the AI Assistant context
-const mockContext = {
-  addMemory: jest.fn(),
-  searchMemories: jest.fn(),
-  searchKnowledge: jest.fn(),
-  searchTravelPlaces: jest.fn(),
-  searchFamilyMembers: jest.fn(),
-  getAIConfig: jest.fn(),
-};
+// Mock the useAIAssistant hook
+const mockSendMessage = jest.fn();
+const mockClearConversation = jest.fn();
+const mockSetConversationId = jest.fn();
 
-// Mock the AI Assistant provider
-jest.mock('@/contexts/AIAssistantContext', () => ({
-  ...jest.requireActual('@/contexts/AIAssistantContext'),
-  useAIAssistant: () => mockContext,
-  AIProvider: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+jest.mock('@/hooks/useAIAssistant', () => ({
+  __esModule: true,
+  default: jest.fn().mockImplementation(() => ({
+    sendMessage: mockSendMessage,
+    clearConversation: mockClearConversation,
+    setConversationId: mockSetConversationId,
+    isLoading: false,
+    error: null,
+    messages: [],
+  })),
 }));
 
 // Test component that uses the useAIAssistant hook
-const TestComponent = ({ initialMessage }: { initialMessage?: string }) => {
-  const { sendMessage, isLoading, error, messages } = useAIAssistant('test-conversation');
+const TestComponent = () => {
+  const { sendMessage, isLoading, error, messages } = useAIAssistant({
+    conversationId: 'test-conversation'
+  });
   const { preferences, updatePreferences } = usePreferences();
   
   return (
