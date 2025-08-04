@@ -24,6 +24,7 @@ from logging_config import get_logger
 from performance_monitoring import performance_monitor
 from rate_limiting import rate_limit
 from circuit_breakers import circuit_breaker
+from secure_file_validation import get_secure_file_validator
 
 logger = get_logger("photo_upload")
 
@@ -33,6 +34,7 @@ class PhotoUploadSystem:
     def __init__(self):
         self.db = get_unified_database()
         self.photo_engine = get_photo_engine()
+        self.secure_validator = get_secure_file_validator()
         
         # Upload configuration
         self.upload_dir = os.getenv('UPLOAD_DIR', 'uploads/photos')
@@ -74,14 +76,30 @@ class PhotoUploadSystem:
         try:
             start_time = datetime.now()
             
-            # Validate file
-            validation_result = await self._validate_upload(file_data, filename)
+            # Secure file validation with comprehensive security scanning
+            validation_result = await self.secure_validator.validate_file(
+                file_data=file_data,
+                filename=filename,
+                expected_type='image',
+                user_id=family_group_id  # Use family_group_id for audit trail
+            )
             if not validation_result["valid"]:
+                logger.warning(f"File validation failed for {filename}: {validation_result.get('error', 'Unknown error')}")
                 return validation_result
             
-            # Generate unique filename
-            file_extension = Path(filename).suffix.lower()
+            # Generate unique filename using secure validation results
+            safe_filename = validation_result['safe_filename']
+            file_extension = Path(safe_filename).suffix.lower()
             unique_filename = f"{uuid.uuid4()}{file_extension}"
+            
+            # Store security metadata
+            security_metadata = {
+                'file_hash': validation_result['file_hash'],
+                'security_score': validation_result['security_score'],
+                'validation_duration': validation_result['validation_duration'],
+                'original_filename': filename,
+                'safe_filename': safe_filename
+            }
             
             # Save original file
             original_path = f"{self.upload_dir}/originals/{unique_filename}"
@@ -102,7 +120,7 @@ class PhotoUploadSystem:
             # Save to database
             memory_data = {
                 "family_group_id": family_group_id,
-                "title": filename,
+                "title": safe_filename,  # Use safe filename
                 "description": description or analysis_result.get("description", ""),
                 "date": datetime.now().isoformat(),
                 "image_url": f"/uploads/photos/originals/{unique_filename}",
@@ -112,7 +130,10 @@ class PhotoUploadSystem:
                 "ai_analysis": analysis_result,
                 "memory_type": "photo",
                 "privacy_level": privacy_level,
-                "metadata": processing_result.get("metadata", {}),
+                "metadata": {
+                    **processing_result.get("metadata", {}),
+                    "security": security_metadata  # Include security metadata
+                },
                 "file_size": len(file_data),
                 "dimensions": processing_result.get("dimensions", {}),
                 "created_by": "system"  # TODO: Get from auth
@@ -172,35 +193,7 @@ class PhotoUploadSystem:
                 "error_type": type(e).__name__
             }
     
-    async def _validate_upload(self, file_data: bytes, filename: str) -> Dict[str, Any]:
-        """Validate uploaded file"""
-        
-        # Check file size
-        if len(file_data) > self.max_file_size:
-            return {
-                "valid": False,
-                "error": f"File too large. Maximum size: {self.max_file_size / (1024*1024)}MB"
-            }
-        
-        # Check file extension
-        file_extension = Path(filename).suffix.lower()
-        if file_extension not in self.allowed_extensions:
-            return {
-                "valid": False,
-                "error": f"Invalid file type. Allowed: {', '.join(self.allowed_extensions)}"
-            }
-        
-        # Check if it's actually an image
-        try:
-            image = Image.open(io.BytesIO(file_data))
-            image.verify()
-        except Exception as e:
-            return {
-                "valid": False,
-                "error": f"Invalid image file: {str(e)}"
-            }
-        
-        return {"valid": True}
+    # Old validation method removed - now using SecureFileValidator for comprehensive security scanning
     
     async def _process_image(self, image_path: str, filename: str) -> Dict[str, Any]:
         """Process image: create thumbnails, extract metadata"""
