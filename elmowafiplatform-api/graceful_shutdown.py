@@ -92,9 +92,9 @@ async def shutdown_database():
         
         # Also close enhanced database pool
         try:
-            from database_enhanced import close_enhanced_database_pool
-            close_enhanced_database_pool()
-            logger.info("Enhanced database connections closed")
+            from unified_database import close_database_pool
+            close_database_pool()
+            logger.info("Unified database connections closed")
         except Exception as e:
             logger.error(f"Error closing enhanced database connections: {e}")
             

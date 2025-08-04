@@ -8,15 +8,38 @@ import os
 import json
 import uuid
 import logging
+import time
+import threading
+from datetime import datetime, timedelta
 import psycopg2
 from psycopg2.pool import SimpleConnectionPool
-from datetime import datetime
 from typing import List, Dict, Any, Optional
 from psycopg2.extras import RealDictCursor
 import asyncio
 import contextlib
+from dataclasses import dataclass
+from enum import Enum
 
 logger = logging.getLogger(__name__)
+
+class ConnectionState(Enum):
+    """Connection pool states"""
+    HEALTHY = "healthy"
+    DEGRADED = "degraded"
+    UNHEALTHY = "unhealthy"
+    RECOVERING = "recovering"
+
+@dataclass
+class PoolMetrics:
+    """Connection pool metrics"""
+    total_connections: int = 0
+    active_connections: int = 0
+    idle_connections: int = 0
+    failed_connections: int = 0
+    connection_errors: int = 0
+    avg_connection_time: float = 0.0
+    last_health_check: datetime = None
+    pool_state: ConnectionState = ConnectionState.HEALTHY
 
 class UnifiedDatabase:
     """Unified PostgreSQL database manager for all platform features"""
@@ -28,22 +51,34 @@ class UnifiedDatabase:
         
         # Initialize connection pool
         self.pool = None
+        self.metrics = PoolMetrics()
+        self.min_connections = 5
+        self.max_connections = 20
         self._initialize_pool()
     
     def _initialize_pool(self):
         """Initialize the connection pool"""
         try:
             # Get pool configuration from environment
-            min_conn = int(os.getenv('DB_MIN_CONNECTIONS', '5'))
-            max_conn = int(os.getenv('DB_MAX_CONNECTIONS', '20'))
+            self.min_connections = int(os.getenv('DB_MIN_CONNECTIONS', '5'))
+            self.max_connections = int(os.getenv('DB_MAX_CONNECTIONS', '20'))
             
             self.pool = SimpleConnectionPool(
-                minconn=min_conn,
-                maxconn=max_conn,
+                minconn=self.min_connections,
+                maxconn=self.max_connections,
                 dsn=self.database_url
             )
-            logger.info(f"Database connection pool initialized: {min_conn}-{max_conn} connections")
+            
+            # Update metrics
+            self.metrics.total_connections = self.max_connections
+            self.metrics.idle_connections = self.min_connections
+            self.metrics.pool_state = ConnectionState.HEALTHY
+            self.metrics.last_health_check = datetime.now()
+            
+            logger.info(f"Database connection pool initialized: {self.min_connections}-{self.max_connections} connections")
         except Exception as e:
+            self.metrics.pool_state = ConnectionState.UNHEALTHY
+            self.metrics.connection_errors += 1
             logger.error(f"Failed to initialize connection pool: {e}")
             raise
     
@@ -87,6 +122,46 @@ class UnifiedDatabase:
         if self.pool:
             self.pool.closeall()
             logger.info("Database connection pool closed")
+    
+    def get_pool_health(self) -> Dict[str, Any]:
+        """Get pool health status"""
+        try:
+            # Update metrics before returning
+            self.metrics.last_health_check = datetime.now()
+            
+            # Try to get a connection to test pool health
+            if self.pool:
+                try:
+                    conn = self.pool.getconn()
+                    if conn:
+                        self.pool.putconn(conn)
+                        self.metrics.pool_state = ConnectionState.HEALTHY
+                except Exception as e:
+                    logger.warning(f"Pool health check failed: {e}")
+                    self.metrics.pool_state = ConnectionState.DEGRADED
+                    self.metrics.connection_errors += 1
+            else:
+                self.metrics.pool_state = ConnectionState.UNHEALTHY
+            
+            return {
+                "state": self.metrics.pool_state.value,
+                "total_connections": self.metrics.total_connections,
+                "active_connections": self.metrics.active_connections,
+                "idle_connections": self.metrics.idle_connections,
+                "failed_connections": self.metrics.failed_connections,
+                "connection_errors": self.metrics.connection_errors,
+                "avg_connection_time": self.metrics.avg_connection_time,
+                "last_health_check": self.metrics.last_health_check.isoformat() if self.metrics.last_health_check else None,
+                "min_connections": self.min_connections,
+                "max_connections": self.max_connections
+            }
+        except Exception as e:
+            logger.error(f"Error getting pool health: {e}")
+            return {
+                "state": ConnectionState.UNHEALTHY.value,
+                "error": str(e),
+                "last_health_check": datetime.now().isoformat()
+            }
 
     # ============================================================================
     # USER AND FAMILY MANAGEMENT
@@ -136,6 +211,133 @@ class UnifiedDatabase:
         except Exception as e:
             logger.error(f"Error getting user: {e}")
             return None
+    
+    def get_user_by_id(self, user_id: str) -> Optional[Dict[str, Any]]:
+        """Get user by ID"""
+        try:
+            with self.get_db_connection() as conn:
+                with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                    cur.execute("""
+                        SELECT * FROM users WHERE id = %s
+                    """, (user_id,))
+                    
+                    result = cur.fetchone()
+                    return dict(result) if result else None
+                    
+        except Exception as e:
+            logger.error(f"Error getting user by ID: {e}")
+            return None
+    
+    def update_user_last_login(self, user_id: str) -> bool:
+        """Update user's last login timestamp"""
+        try:
+            with self.get_db_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        UPDATE users SET last_login_at = %s WHERE id = %s
+                    """, (datetime.now(), user_id))
+                    
+                    conn.commit()
+                    return cur.rowcount > 0
+                    
+        except Exception as e:
+            logger.error(f"Error updating last login: {e}")
+            return False
+    
+    def get_user_family_groups(self, user_id: str) -> List[Dict[str, Any]]:
+        """Get all family groups for a user"""
+        try:
+            with self.get_db_connection() as conn:
+                with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                    cur.execute("""
+                        SELECT fg.id, fg.name, fg.description, fgm.role, fgm.joined_at
+                        FROM family_groups fg
+                        JOIN family_group_members fgm ON fg.id = fgm.family_group_id
+                        JOIN family_members fm ON fgm.family_member_id = fm.id
+                        WHERE fm.user_id = %s
+                        ORDER BY fgm.joined_at DESC
+                    """, (user_id,))
+                    
+                    results = cur.fetchall()
+                    return [dict(row) for row in results]
+                    
+        except Exception as e:
+            logger.error(f"Error getting user family groups: {e}")
+            return []
+    
+    def get_user_roles(self, user_id: str) -> List[str]:
+        """Get all roles for a user across family groups"""
+        try:
+            with self.get_db_connection() as conn:
+                with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                    cur.execute("""
+                        SELECT DISTINCT fgm.role
+                        FROM family_group_members fgm
+                        JOIN family_members fm ON fgm.family_member_id = fm.id
+                        WHERE fm.user_id = %s
+                    """, (user_id,))
+                    
+                    results = cur.fetchall()
+                    roles = [row['role'] for row in results]
+                    return roles if roles else ['member']
+                    
+        except Exception as e:
+            logger.error(f"Error getting user roles: {e}")
+            return ['member']
+    
+    def create_family_group(self, group_data: Dict[str, Any]) -> str:
+        """Create a new family group"""
+        group_id = str(uuid.uuid4())
+        
+        try:
+            with self.get_db_connection() as conn:
+                with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                    cur.execute("""
+                        INSERT INTO family_groups (id, name, description, owner_id, settings, created_at, updated_at)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s)
+                        RETURNING id
+                    """, (
+                        group_id,
+                        group_data['name'],
+                        group_data.get('description', ''),
+                        group_data['owner_id'],
+                        json.dumps(group_data.get('settings', {})),
+                        datetime.now(),
+                        datetime.now()
+                    ))
+                    
+                    result = cur.fetchone()
+                    conn.commit()
+                    return result['id'] if result else group_id
+                    
+        except Exception as e:
+            logger.error(f"Error creating family group: {e}")
+            return None
+    
+    def add_family_member_to_group(self, family_group_id: str, family_member_id: str, role: str = 'member') -> bool:
+        """Add family member to family group"""
+        try:
+            with self.get_db_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        INSERT INTO family_group_members (id, family_group_id, family_member_id, role, joined_at)
+                        VALUES (%s, %s, %s, %s, %s)
+                        ON CONFLICT (family_group_id, family_member_id) DO UPDATE SET role = %s
+                    """, (
+                        str(uuid.uuid4()),
+                        family_group_id,
+                        family_member_id,
+                        role,
+                        datetime.now(),
+                        role
+                    ))
+                    
+                    conn.commit()
+                    return cur.rowcount > 0
+                    
+        except Exception as e:
+            logger.error(f"Error adding family member to group: {e}")
+            return False
     
     def create_family_member(self, member_data: Dict[str, Any]) -> str:
         """Create a new family member"""
