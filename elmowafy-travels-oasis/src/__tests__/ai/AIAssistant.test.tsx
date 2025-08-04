@@ -1,8 +1,8 @@
 import React from 'react';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { useAIAssistant } from '@/hooks/useAIAssistant';
 import { PreferencesProvider, usePreferences } from '@/contexts/PreferencesContext';
-import { AIMessage } from '@/types/ai';
+import { AIMessage, ERROR_CODES } from '@/types/ai';
 
 // Mock the fetch API
 global.fetch = jest.fn();
@@ -44,20 +44,41 @@ const mockErrorResponse = {
   statusCode: 500,
 };
 
+// Mock the error handler
+const mockHandleAIError = jest.fn();
+jest.mock('@/lib/ai/errorHandling', () => ({
+  handleAIError: (...args: any[]) => mockHandleAIError(...args),
+  ERROR_CODES: {
+    NETWORK_ERROR: 'NETWORK_ERROR',
+    API_ERROR: 'API_ERROR',
+    AUTH_ERROR: 'AUTH_ERROR',
+    RATE_LIMIT: 'RATE_LIMIT',
+    INVALID_INPUT: 'INVALID_INPUT',
+    NOT_FOUND: 'NOT_FOUND',
+    UNKNOWN: 'UNKNOWN',
+  },
+}));
+
 // Test component that uses the useAIAssistant hook
 interface TestComponentProps {
   conversationId?: string;
+  onMessageSent?: (message: string) => void;
 }
 
-const TestComponent: React.FC<TestComponentProps> = ({ conversationId = 'test-conversation' }) => {
+const TestComponent: React.FC<TestComponentProps> = ({ 
+  conversationId = 'test-conversation',
+  onMessageSent
+}) => {
   const { 
     sendMessage, 
     isLoading, 
     error, 
-    messages 
+    messages,
+    clearError
   } = useAIAssistant({
     conversationId,
     persistConversation: true,
+    onMessageSent,
   });
   
   const { preferences, updatePreferences } = usePreferences();
@@ -72,6 +93,13 @@ const TestComponent: React.FC<TestComponentProps> = ({ conversationId = 'test-co
         {isLoading ? 'Sending...' : 'Send Message'}
       </button>
       
+      <button 
+        onClick={clearError}
+        data-testid="clear-error-button"
+      >
+        Clear Error
+      </button>
+      
       {error && (
         <div data-testid="error-message">{error.message}</div>
       )}
@@ -79,7 +107,7 @@ const TestComponent: React.FC<TestComponentProps> = ({ conversationId = 'test-co
       <div data-testid="messages">
         {messages.map((msg: AIMessage, idx: number) => (
           <div key={msg.id || idx} data-testid={`message-${idx}`}>
-            {msg.content}
+            {msg.role}: {msg.content}
           </div>
         ))}
       </div>
@@ -91,122 +119,230 @@ const TestComponent: React.FC<TestComponentProps> = ({ conversationId = 'test-co
       <button 
         onClick={() => updatePreferences({ 
           ai: { 
-            assistantPersonality: 'professional',
-            language: 'en',
-            privacy: { shareTravelHistory: true }
+            shareTravelHistory: true,
+            sharePreferences: true,
+            dataCollection: 'standard' as const
           } 
         })}
+        data-testid="update-prefs-button"
       >
         Update Preferences
       </button>
-      
-      {error && <div data-testid="error">{error.message}</div>}
-      
-      <div data-testid="messages">
-        {messages.map((msg, i) => (
-          <div key={i} data-testid={`message-${i}`} data-role={msg.role}>
-            {msg.content}
-          </div>
-        ))}
-      </div>
-      
-      <div data-testid="preferences">
-        {JSON.stringify(preferences?.ai)}
-      </div>
     </div>
   );
 };
 
-describe('AI Assistant Integration', () => {
+describe('useAIAssistant Hook', () => {
+  const originalEnv = process.env;
+
   beforeEach(() => {
     jest.clearAllMocks();
     
-    // Reset mock context
-    mockContext.addMemory.mockResolvedValue({});
-    mockContext.searchMemories.mockResolvedValue([]);
-    mockContext.searchKnowledge.mockResolvedValue([]);
+    // Reset process.env
+    process.env = {
+      ...originalEnv,
+      NEXT_PUBLIC_AI_API_URL: 'http://localhost:8001/api',
+    };
+    
+    // Mock successful fetch response by default
+    (global.fetch as jest.Mock).mockResolvedValue({
       ok: true,
       json: async () => mockSuccessResponse,
     });
+    
+    // Mock localStorage
+    Storage.prototype.setItem = jest.fn();
+    Storage.prototype.getItem = jest.fn(() => null);
+    Storage.prototype.removeItem = jest.fn();
+    
+    // Reset mock implementations
+    mockSaveConversation.mockResolvedValue(undefined);
+    mockGetConversation.mockResolvedValue(null);
+    mockDeleteConversation.mockResolvedValue(undefined);
+    mockHandleAIError.mockImplementation((error) => error);
+  });
   
-  it('should send a message and receive a response', async () => {
+  afterEach(() => {
+    process.env = originalEnv;
+    jest.restoreAllMocks();
+  });
+  
+  it('should initialize with default values', () => {
     render(
       <PreferencesProvider>
-        <AIProvider>
-          <TestComponent />
-        </AIProvider>
+        <TestComponent />
       </PreferencesProvider>
     );
     
-    // Send a message
-    fireEvent.click(screen.getByText('Send Message'));
+    expect(screen.getByTestId('send-button')).not.toBeDisabled();
+    expect(screen.queryByTestId('error-message')).not.toBeInTheDocument();
+  });
+  
+  it('should send a message and update UI state', async () => {
+    const onMessageSent = jest.fn();
+    
+    render(
+      <PreferencesProvider>
+        <TestComponent onMessageSent={onMessageSent} />
+      </PreferencesProvider>
+    );
+    
+    const sendButton = screen.getByTestId('send-button');
+    fireEvent.click(sendButton);
     
     // Should show loading state
-    expect(screen.getByText('Send Message')).toBeDisabled();
+    expect(sendButton).toHaveTextContent('Sending...');
     
-    // Wait for the response
+    // Wait for the API call to complete
     await waitFor(() => {
-      expect(mockFetch).toHaveBeenCalledWith(
-        '/api/ai/chat',
+      expect(global.fetch).toHaveBeenCalledWith(
+        'http://localhost:8001/api/chat',
         expect.objectContaining({
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
+            'Authorization': 'Bearer null',
           },
         })
       );
     });
     
-    // Should show the response
+    // Should update messages with the response
     await waitFor(() => {
-      expect(screen.getByTestId('messages')).toHaveTextContent('Hello! How can I help you today?');
+      expect(screen.getByText(/assistant: Hello! How can I help you today?/)).toBeInTheDocument();
     });
+    
+    // Should call onMessageSent callback
+    expect(onMessageSent).toHaveBeenCalledWith(expect.objectContaining({
+      content: 'Hello! How can I help you today?',
+      role: 'assistant',
+    }));
+    
+    // Should clear loading state
+    expect(sendButton).toHaveTextContent('Send Message');
   });
   
-  it('should handle API errors gracefully', async () => {
-    // Mock an error response
-    mockFetch.mockReset();
-    mockFetch.mockRejectedValueOnce(new Error('Network error'));
+  it('should handle API errors', async () => {
+    // Mock a failed API response
+    (global.fetch as jest.Mock).mockResolvedValueOnce({
+      ok: false,
+      status: 500,
+      json: async () => mockErrorResponse,
+    });
     
     render(
       <PreferencesProvider>
-        <AIProvider>
-          <TestComponent />
-        </AIProvider>
+        <TestComponent />
       </PreferencesProvider>
     );
     
-    // Send a message
-    fireEvent.click(screen.getByText('Send Message'));
+    fireEvent.click(screen.getByTestId('send-button'));
     
-    // Should show error state
+    // Should show error message
     await waitFor(() => {
-      expect(screen.getByTestId('error')).toBeInTheDocument();
+      expect(screen.getByTestId('error-message')).toHaveTextContent('Something went wrong');
+    });
+    
+    // Should call error handler
+    expect(mockHandleAIError).toHaveBeenCalled();
+  });
+  
+  it('should handle network errors', async () => {
+    // Simulate a network error
+    (global.fetch as jest.Mock).mockRejectedValueOnce(new Error('Network error'));
+    
+    render(
+      <PreferencesProvider>
+        <TestComponent />
+      </PreferencesProvider>
+    );
+    
+    fireEvent.click(screen.getByTestId('send-button'));
+    
+    // Should show network error
+    await waitFor(() => {
+      expect(screen.getByTestId('error-message')).toHaveTextContent('Network error');
+    });
+    
+    // Should call error handler with network error code
+    expect(mockHandleAIError).toHaveBeenCalledWith(
+      expect.any(Error),
+      { code: ERROR_CODES.NETWORK_ERROR }
+    );
+  });
+  
+  it('should clear errors when clearError is called', async () => {
+    // First trigger an error
+    (global.fetch as jest.Mock).mockRejectedValueOnce(new Error('Test error'));
+    
+    render(
+      <PreferencesProvider>
+        <TestComponent />
+      </PreferencesProvider>
+    );
+    
+    fireEvent.click(screen.getByTestId('send-button'));
+    
+    // Wait for error to appear
+    await waitFor(() => {
+      expect(screen.getByTestId('error-message')).toBeInTheDocument();
+    });
+    
+    // Clear the error
+    fireEvent.click(screen.getByTestId('clear-error-button'));
+    
+    // Error should be cleared
+    await waitFor(() => {
+      expect(screen.queryByTestId('error-message')).not.toBeInTheDocument();
     });
   });
   
-  it('should update AI behavior when preferences change', async () => {
+  it('should load conversation from storage if persistConversation is true', async () => {
+    const savedMessages = [
+      {
+        id: 'msg-1',
+        role: 'user' as const,
+        content: 'Hello',
+        timestamp: new Date().toISOString(),
+      },
+      {
+        id: 'msg-2',
+        role: 'assistant' as const,
+        content: 'Hi there!',
+        timestamp: new Date().toISOString(),
+      },
+    ];
+    
+    mockGetConversation.mockResolvedValueOnce(savedMessages);
+    
     render(
       <PreferencesProvider>
-        <AIProvider>
-          <TestComponent />
-        </AIProvider>
+        <TestComponent conversationId="saved-conversation" />
+      </PreferencesProvider>
+    );
+    
+    // Should load messages from storage
+    await waitFor(() => {
+      expect(mockGetConversation).toHaveBeenCalledWith('saved-conversation');
+      expect(screen.getByText(/user: Hello/)).toBeInTheDocument();
+      expect(screen.getByText(/assistant: Hi there!/)).toBeInTheDocument();
+    });
+  });
+  
+  it('should update preferences and include them in API requests', async () => {
+    render(
+      <PreferencesProvider>
+        <TestComponent />
       </PreferencesProvider>
     );
     
     // Update preferences
-    fireEvent.click(screen.getByText('Update Preferences'));
+    fireEvent.click(screen.getByTestId('update-prefs-button'));
     
-    // Check if preferences were updated
-    await waitFor(() => {
-      const prefs = JSON.parse(screen.getByTestId('preferences').textContent || '{}');
-      expect(prefs.assistantPersonality).toBe('professional');
-      expect(prefs.language).toBe('en');
-      expect(prefs.privacy.shareTravelHistory).toBe(true);
-    });
+    // Send a message
+    fireEvent.click(screen.getByTestId('send-button'));
     
-    // Send a message with updated preferences
-    fireEvent.click(screen.getByText('Send Message'));
+    // Check that preferences were included in the request
     
     // Check if the API was called with the correct parameters
     await waitFor(() => {

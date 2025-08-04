@@ -1,103 +1,142 @@
-import { toast } from '@/components/ui/use-toast';
-import { isDev } from '@/lib/utils';
-import React from 'react';
-
-/**
- * AI Service Error Codes
- * These codes help identify specific types of errors that can occur in the AI service
- */
-export enum ErrorCode {
+// Error codes for the AI service
+export const ERROR_CODES = {
   // General errors
-  UNKNOWN_ERROR = 'UNKNOWN_ERROR',
-  INVALID_REQUEST = 'INVALID_REQUEST',
-  UNAUTHORIZED = 'UNAUTHORIZED',
-  RATE_LIMIT_EXCEEDED = 'RATE_LIMIT_EXCEEDED',
-  SERVICE_UNAVAILABLE = 'SERVICE_UNAVAILABLE',
-  TIMEOUT = 'TIMEOUT',
-  NETWORK_ERROR = 'NETWORK_ERROR',
-  
-  // AI API errors
-  INVALID_API_KEY = 'INVALID_API_KEY',
-  QUOTA_EXCEEDED = 'QUOTA_EXCEEDED',
-  MODEL_NOT_FOUND = 'MODEL_NOT_FOUND',
-  CONTENT_FILTERED = 'CONTENT_FILTERED',
-  
-  // Business logic errors
-  INVALID_MESSAGE = 'INVALID_MESSAGE',
-  CONTEXT_TOO_LARGE = 'CONTEXT_TOO_LARGE',
-  OPERATION_NOT_SUPPORTED = 'OPERATION_NOT_SUPPORTED',
+  NETWORK_ERROR: 'NETWORK_ERROR',
+  API_ERROR: 'API_ERROR',
+  AUTH_ERROR: 'AUTH_ERROR',
+  RATE_LIMIT: 'RATE_LIMIT',
+  INVALID_INPUT: 'INVALID_INPUT',
+  NOT_FOUND: 'NOT_FOUND',
+  UNKNOWN: 'UNKNOWN',
+} as const;
+
+type ErrorCode = typeof ERROR_CODES[keyof typeof ERROR_CODES];
+
+interface AIErrorOptions {
+  code: ErrorCode;
+  message: string;
+  details?: any;
+  originalError?: Error;
 }
 
 /**
  * Custom error class for AI service errors
  */
 export class AIError extends Error {
-  constructor(
-    public code: string,
-    message: string,
-    public details?: any,
-    public isUserFacing: boolean = true,
-    public retryable: boolean = false,
-    public originalError?: Error
-  ) {
+  public code: ErrorCode;
+  public details?: any;
+  public originalError?: Error;
+
+  constructor({ code, message, details, originalError }: AIErrorOptions) {
     super(message);
     this.name = 'AIError';
-    
+    this.code = code;
+    this.details = details;
+    this.originalError = originalError;
+
     // Maintain proper stack trace in V8
     if (Error.captureStackTrace) {
       Error.captureStackTrace(this, AIError);
     }
   }
-  
-  /**
-   * Create a user-friendly error message
-   */
-  toUserFriendlyMessage(): string {
-    if (!this.isUserFacing) {
-      return 'An unexpected error occurred. Please try again later.';
-    }
-    
-    const errorMessage = ERROR_MESSAGES[this.code as keyof typeof ERROR_MESSAGES];
-    if (errorMessage) {
-      return errorMessage.description;
-    }
-    
-    // Fallback to default messages based on error code
-    switch (this.code) {
-      case ErrorCode.RATE_LIMIT_EXCEEDED:
-      case ErrorCode.QUOTA_EXCEEDED:
-        return 'Rate limit exceeded. Please wait a moment before trying again.';
-        
-      case ErrorCode.INVALID_API_KEY:
-        return 'Invalid API key. Please check your configuration.';
-        
-      case ErrorCode.SERVICE_UNAVAILABLE:
-        return 'The AI service is currently unavailable. Please try again later.';
-        
-      case ErrorCode.TIMEOUT:
-        return 'The request took too long. Please check your connection and try again.';
-        
-      case ErrorCode.NETWORK_ERROR:
-        return 'A network error occurred. Please check your internet connection.';
-        
-      case ErrorCode.CONTENT_FILTERED:
-        return 'The message was filtered due to content policy violations.';
-        
-      case ErrorCode.CONTEXT_TOO_LARGE:
-        return 'The conversation is too long. Please start a new conversation.';
-        
-      default:
-        return this.message || 'An error occurred while processing your request.';
-    }
+
+  toJSON() {
+    return {
+      name: this.name,
+      code: this.code,
+      message: this.message,
+      details: this.details,
+      stack: this.stack,
+      originalError: this.originalError?.message,
+    };
   }
 }
 
-// Legacy error codes for backward compatibility
-// Legacy error codes for backward compatibility
-export const ERROR_CODES = {
-  // API Errors (1000-1999)
-  API_CONNECTION: 'API_1000',
-  API_TIMEOUT: 'API_1001',
+/**
+ * Handle AI errors and convert them to AIError instances
+ */
+export function handleAIError(error: unknown, options: { code?: ErrorCode } = {}): AIError {
+  // If it's already an AIError, return it as is
+  if (error instanceof AIError) {
+    return error;
+  }
+
+  // Handle standard Error instances
+  if (error instanceof Error) {
+    // Check for network errors
+    if (error.message.includes('NetworkError') || error.message.includes('Failed to fetch')) {
+      return new AIError({
+        code: ERROR_CODES.NETWORK_ERROR,
+        message: 'Network error occurred. Please check your internet connection.',
+        originalError: error,
+      });
+    }
+
+    // Handle timeout errors
+    if (error.name === 'TimeoutError' || error.message.includes('timeout')) {
+      return new AIError({
+        code: ERROR_CODES.API_ERROR,
+        message: 'Request timed out. Please try again.',
+        originalError: error,
+      });
+    }
+
+    // Handle authentication errors (401/403)
+    if (
+      error.message.includes('401') ||
+      error.message.includes('403') ||
+      error.message.toLowerCase().includes('unauthorized') ||
+      error.message.toLowerCase().includes('forbidden')
+    ) {
+      return new AIError({
+        code: ERROR_CODES.AUTH_ERROR,
+        message: 'Authentication failed. Please log in again.',
+        originalError: error,
+      });
+    }
+
+    // Handle rate limiting (429)
+    if (error.message.includes('429') || error.message.toLowerCase().includes('rate limit')) {
+      return new AIError({
+        code: ERROR_CODES.RATE_LIMIT,
+        message: 'Rate limit exceeded. Please wait before trying again.',
+        originalError: error,
+      });
+    }
+
+    // Handle 404 errors
+    if (error.message.includes('404') || error.message.toLowerCase().includes('not found')) {
+      return new AIError({
+        code: ERROR_CODES.NOT_FOUND,
+        message: 'The requested resource was not found.',
+        originalError: error,
+      });
+    }
+
+    // Handle invalid input (400)
+    if (error.message.includes('400') || error.message.toLowerCase().includes('invalid')) {
+      return new AIError({
+        code: ERROR_CODES.INVALID_INPUT,
+        message: 'Invalid input. Please check your request and try again.',
+        originalError: error,
+      });
+    }
+
+    // Default error handling with provided code or fallback to UNKNOWN
+    return new AIError({
+      code: options.code || ERROR_CODES.UNKNOWN,
+      message: error.message || 'An unknown error occurred',
+      originalError: error,
+    });
+  }
+
+  // Handle non-Error objects
+  return new AIError({
+    code: options.code || ERROR_CODES.UNKNOWN,
+    message: typeof error === 'string' ? error : 'An unknown error occurred',
+    details: error,
+  });
+}
   API_RATE_LIMIT: 'API_1002',
   API_AUTH: 'API_1003',
   API_INVALID_RESPONSE: 'API_1004',
