@@ -1,94 +1,20 @@
-# Core FastAPI dependencies
 fastapi==0.104.1
 uvicorn[standard]==0.24.0
 python-multipart==0.0.6
 pydantic==2.5.0
-
-# Database dependencies
 psycopg2-binary==2.9.9
-# sqlite3 is built into Python, no need to install
-
-# AI and ML dependencies
-opencv-python==4.8.1.78
-numpy==1.24.3
-Pillow==10.1.0
-face-recognition==1.3.0
-dlib==19.24.2
-
-# Google AI dependencies
-google-generativeai==0.3.2
-google-cloud-aiplatform==1.38.1
-
-# Azure AI dependencies
-azure-ai-vision==0.13.0
-azure-ai-formrecognizer==3.3.0
-azure-ai-textanalytics==5.3.0
-azure-ai-translation-text==1.0.0
-
-# HTTP and async dependencies
-aiohttp==3.9.1
-httpx==0.25.2
-# asyncio is built into Python
-
-# Authentication and security
 python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
-python-multipart==0.0.6
 PyJWT==2.8.0
 bcrypt==4.0.1
-
-# File handling and utilities
-python-magic==0.4.27
-pathlib2==2.3.7
-
-# Logging and monitoring
 structlog==23.2.0
-
-# Development and testing
-pytest==7.4.3
-pytest-asyncio==0.21.1
-black==23.11.0
-flake8==6.1.0
-
-# Additional utilities
-python-dotenv==1.0.0
-requests==2.31.0
-
-# PRODUCTION DEPENDENCIES - NEW
-
-# Structured logging
-structlog==23.2.0
-
-# Error tracking (Sentry)
 sentry-sdk[fastapi]==1.38.0
-
-# Performance monitoring (Prometheus)
 prometheus-client==0.19.0
-
-# Rate limiting
 slowapi==0.1.9
-
-# Circuit breakers
 pybreaker==1.0.1
-
-# Secrets management
 cryptography==41.0.7
-
-# System monitoring
 psutil==5.9.6
-
-# Health checks
-healthcheck==1.3.0
-
-# Production utilities
-python-json-logger==2.0.7
-
-# Photo Upload and Game State Dependencies
-# Image processing (already included: Pillow, opencv-python)
-# Face recognition (already included: face-recognition, dlib)
-# WebSocket support for real-time games
 websockets==12.0
 redis==5.0.1
-
-# Game state management
-# uuid and random are built into Python 
+python-dotenv==1.0.0
+requests==2.31.0 
