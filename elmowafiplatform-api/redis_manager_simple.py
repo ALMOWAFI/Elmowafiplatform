@@ -16,19 +16,33 @@ class SimpleRedisManager:
     def __init__(self):
         self.redis_available = False
         self.cache = {}  # In-memory fallback cache
+        self.async_redis = None  # Will be set during connect
+        
+    def is_connected(self) -> bool:
+        """Check if Redis is connected and available"""
+        return self.redis_available
         
     async def connect(self):
         """Try to connect to Redis, fallback to in-memory cache"""
         try:
             import aioredis
+            import os
+            
+            # Get Redis URL from environment variable or use default
+            redis_url = os.getenv('REDIS_URL', 'redis://localhost:6379')
+            
             # For aioredis 1.3.1 compatibility
-            self.redis = await aioredis.create_redis_pool('redis://localhost:6379')
+            self.redis = await aioredis.create_redis_pool(redis_url)
+            # Set async_redis for pub/sub operations
+            self.async_redis = self.redis
+            
             await self.redis.ping()
             self.redis_available = True
-            logger.info("Redis connected successfully")
+            logger.info(f"Redis connected successfully to {redis_url}")
         except Exception as e:
             logger.warning(f"Redis not available, using in-memory cache: {e}")
             self.redis_available = False
+            self.async_redis = None
     
     async def disconnect(self):
         """Disconnect from Redis"""
@@ -91,3 +105,46 @@ async def init_redis():
 async def close_redis():
     """Close Redis connection"""
     await redis_manager.disconnect()
+
+# Add publish and subscribe methods to SimpleRedisManager
+async def publish(self, channel: str, message: str):
+    """Publish message to Redis channel"""
+    if self.redis_available and self.async_redis:
+        try:
+            await self.async_redis.publish(channel, message)
+            return True
+        except Exception as e:
+            logger.error(f"Failed to publish to Redis: {e}")
+    return False
+
+async def subscribe(self, channels: list, callback):
+    """Subscribe to Redis channels"""
+    if not self.redis_available or not self.async_redis:
+        logger.warning("Redis not available for subscription")
+        return False
+    
+    try:
+        # For aioredis 1.3.1 compatibility
+        res = await self.async_redis.subscribe(*channels)
+        ch_obj = res[0]
+        
+        # Start listening for messages
+        async def reader():
+            while await ch_obj.wait_message():
+                try:
+                    msg = await ch_obj.get()
+                    if callable(callback):
+                        await callback(ch_obj.name.decode(), msg.decode())
+                except Exception as e:
+                    logger.error(f"Error processing Redis message: {e}")
+        
+        # Create task to read messages
+        asyncio.create_task(reader())
+        return True
+    except Exception as e:
+        logger.error(f"Failed to subscribe to Redis channels: {e}")
+        return False
+
+# Add methods to SimpleRedisManager class
+SimpleRedisManager.publish = publish
+SimpleRedisManager.subscribe = subscribe

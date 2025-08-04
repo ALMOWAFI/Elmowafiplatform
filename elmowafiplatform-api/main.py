@@ -21,6 +21,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 import aiofiles
 import requests
+import google.generativeai as genai
 
 # Import authentication
 from auth import UserAuth, UserLogin, Token, get_current_user, register_user, login_user
@@ -68,6 +69,18 @@ logger = logging.getLogger(__name__)
 
 # Initialize FastAPI app
 app = FastAPI(title="Elmowafiplatform API", version="1.0.0")
+
+# Configure Gemini AI
+GEMINI_API_KEY = "AIzaSyCbqHeGOWCbvK5J-BH9y0Lhq8zxHINuWHU"
+genai.configure(api_key=GEMINI_API_KEY)
+
+# Initialize Gemini model
+try:
+    gemini_model = genai.GenerativeModel('gemini-pro')
+    logger.info("✅ Gemini AI initialized successfully")
+except Exception as e:
+    logger.error(f"❌ Failed to initialize Gemini AI: {e}")
+    gemini_model = None
 
 # Add cache middleware
 app.add_middleware(CacheMiddleware)
@@ -1215,101 +1228,60 @@ async def analyze_family_photo_with_ai(image_path: str, family_context: List[Dic
             "analysis": {}
         }
 
-# AI Response Generation Function
+# AI Response Generation Function with Real Gemini AI
 async def generate_ai_response(message: str, family_context: List[str], 
                               family_id: Optional[str] = None) -> tuple[str, List[str]]:
-    """Generate intelligent AI response using family platform server"""
+    """Generate intelligent AI response using Google Gemini AI"""
     try:
+        if not gemini_model:
+            return "AI service is currently unavailable. Please try again later.", []
+        
+        # Build context for Gemini
+        context_prompt = f"""
+You are an intelligent family assistant for the Elmowafiplatform - a family memory and travel management system.
+
+Family Context:
+{chr(10).join(family_context) if family_context else "No specific family context available"}
+
+Family ID: {family_id or "Not specified"}
+
+Your capabilities:
+- Help with family memory organization and discovery
+- Provide travel planning and recommendations with cultural sensitivity (Arabic/English families)
+- Assist with budget management for family activities
+- Support family tree and relationship management
+- Offer suggestions for family activities and bonding
+
+User Message: {message}
+
+Respond as a helpful, warm family assistant. Be culturally sensitive and support both Arabic and English families. Keep responses concise but informative (2-3 sentences max).
+"""
+
+        # Generate response with Gemini
+        response = gemini_model.generate_content(context_prompt)
+        ai_response = response.text.strip()
+        
+        # Generate contextual suggestions based on the message content
+        suggestions = []
         user_message = message.lower()
         
-        # Travel-related queries
         if any(word in user_message for word in ["travel", "trip", "vacation", "destination"]):
-            try:
-                # Call family platform server for travel recommendations
-                response = requests.get(
-                    f"{FAMILY_AI_URL}/api/travel/recommendations", 
-                    params={"family_id": family_id, "query": message}, 
-                    timeout=5)
-                if response.status_code == 200:
-                    data = response.json()
-                    travel_suggestions = data.get("recommendations", [])
-                    if travel_suggestions:
-                        response_text = f"Based on your family preferences, here are some travel suggestions: {', '.join(travel_suggestions[:3])}"
-                        suggestions = ["Get detailed itinerary", "Check budget", "View family activities"]
-                        return response_text, suggestions
-            except Exception as e:
-                logger.warning(f"Travel AI service unavailable: {e}")
-                
-            # Fallback response
-            return "I can help you plan family trips! Let me suggest destinations based on your family size and interests.", ["Show travel plans", "Get budget estimates", "Find family activities"]
-        
-        # Memory-related queries  
+            suggestions = ["Get travel recommendations", "Check family budget", "View destinations", "Plan itinerary"]
         elif any(word in user_message for word in ["memory", "photo", "remember", "picture"]):
-            try:
-                # Call family platform server for memory suggestions
-                response = requests.get(f"{FAMILY_AI_URL}/api/memories/suggestions", 
-                                      params={"family_id": family_id, "context": message}, 
-                                      timeout=5)
-                if response.status_code == 200:
-                    data = response.json()
-                    memory_suggestions = data.get("suggestions", [])
-                    if memory_suggestions:
-                        response_text = f"I found some related memories! {memory_suggestions[0].get('description', 'Check your memory timeline.')}"
-                        suggestions = ["View timeline", "Upload photos", "Find similar memories"]
-                        return response_text, suggestions
-            except Exception as e:
-                logger.warning(f"Memory AI service unavailable: {e}")
-                
-            return "I can help you organize and discover family memories! Upload photos and I'll analyze them for you.", ["Upload photos", "View timeline", "Smart suggestions"]
-        
-        # Family member queries
+            suggestions = ["Upload new photos", "View memory timeline", "Find similar memories", "Organize photos"]
+        elif any(word in user_message for word in ["budget", "money", "cost", "expense"]):
+            suggestions = ["View budget overview", "Add new expense", "Set budget limits", "Track spending"]
         elif any(word in user_message for word in ["family", "member", "tree", "relatives"]):
-            try:
-                # Call family platform server for family data
-                response = requests.get(f"{FAMILY_AI_URL}/api/family/members", 
-                                      params={"family_id": family_id}, 
-                                      timeout=5)
-                if response.status_code == 200:
-                    data = response.json()
-                    members = data.get("members", [])
-                    count = len(members)
-                    response_text = f"Your family has {count} members registered. I can help you manage family information and relationships."
-                    suggestions = ["View family tree", "Add member", "Update relationships"]
-                    return response_text, suggestions
-            except Exception as e:
-                logger.warning(f"Family AI service unavailable: {e}")
-                
-            return "I can help you manage your family tree and member information!", ["View family tree", "Add member", "Family statistics"]
-        
-        # Gaming queries
-        elif any(word in user_message for word in ["game", "play", "mafia", "fun", "activity"]):
-            return "Ready for family fun? I can set up interactive games and activities for your family!", ["Start Mafia game", "Location challenge", "Family quiz"]
-        
-        # Budget queries
-        elif any(word in user_message for word in ["budget", "money", "finance", "cost", "expense"]):
-            try:
-                # Call family platform server for budget info
-                response = requests.get(f"{FAMILY_AI_URL}/api/budget/summary", 
-                                      params={"family_id": family_id}, 
-                                      timeout=5)
-                if response.status_code == 200:
-                    data = response.json()
-                    response_text = f"Your family budget overview: {data.get('summary', 'Budget information available.')}"
-                    suggestions = ["View detailed budget", "Plan expenses", "Travel budget"]
-                    return response_text, suggestions
-            except Exception as e:
-                logger.warning(f"Budget AI service unavailable: {e}")
-                
-            return "I can help you manage your family budget and plan expenses!", ["Budget overview", "Travel planning", "Expense tracking"]
-        
-        # Default response with family context
+            suggestions = ["View family tree", "Add family member", "Update relationships", "Family statistics"]
         else:
-            context_info = f" I see you have {len(family_context)} family context items." if family_context else ""
-            return f"Hello! I'm your intelligent family assistant.{context_info} I can help with travel planning, memory organization, family management, budgeting, and games!", ["Plan a trip", "Organize memories", "Family info", "Start game"]
-            
+            suggestions = ["Explore memories", "Plan family trip", "Check budget", "View family tree"]
+        
+        return ai_response, suggestions[:4]  # Limit to 4 suggestions
+        
     except Exception as e:
-        logger.error(f"AI response generation failed: {e}")
-        return "I'm here to help your family! Ask me about travel, memories, family info, or games.", ["Plan a trip", "View memories", "Family tree", "Play games"]
+        logger.error(f"Gemini AI error: {e}")
+        # Fallback response
+        return "I'm here to help with your family memories, travel planning, and more! How can I assist you today?", ["Upload photos", "Plan trip", "Check budget", "View family"]
 
 # Chat/AI Assistant Endpoints
 class ChatMessage(BaseModel):
@@ -2718,11 +2690,160 @@ def calculate_monthly_memory_average(memories: List[Dict[str, Any]]) -> float:
         logger.error(f"Error calculating monthly average: {e}")
         return 0.0
 
+# Budget Management Endpoints
+@app.get("/api/budget/summary")
+async def get_budget_summary(current_user: dict = Depends(get_current_user)):
+    """Get family budget summary with AI insights"""
+    try:
+        if not gemini_model:
+            return {"error": "AI service unavailable"}
+            
+        # For now, return mock data structure - will connect to real budget system
+        mock_data = {
+            "total_budget": 5000.0,
+            "spent": 2800.0,
+            "remaining": 2200.0,
+            "categories": [
+                {"name": "Travel", "budgeted": 2000.0, "spent": 1200.0},
+                {"name": "Activities", "budgeted": 1500.0, "spent": 800.0},
+                {"name": "Food", "budgeted": 1000.0, "spent": 600.0},
+                {"name": "Accommodation", "budgeted": 500.0, "spent": 200.0}
+            ]
+        }
+        
+        # Use Gemini to provide budget insights
+        prompt = f"""
+        Analyze this family budget data and provide 2-3 practical insights:
+        Total Budget: ${mock_data['total_budget']}
+        Spent: ${mock_data['spent']}
+        Remaining: ${mock_data['remaining']}
+        Categories: {mock_data['categories']}
+        
+        Provide brief, actionable insights for a family budget.
+        """
+        
+        response = gemini_model.generate_content(prompt)
+        ai_insights = response.text.strip()
+        
+        return {
+            **mock_data,
+            "ai_insights": ai_insights,
+            "budget_health": "good" if mock_data['remaining'] > 0 else "warning"
+        }
+        
+    except Exception as e:
+        logger.error(f"Budget summary error: {e}")
+        return {"error": "Failed to get budget summary"}
+
+@app.post("/api/budget/categories")
+async def create_budget_category(category_data: dict, current_user: dict = Depends(get_current_user)):
+    """Create new budget category"""
+    try:
+        # Validate required fields
+        if not category_data.get("name") or not category_data.get("amount"):
+            raise HTTPException(status_code=400, detail="Name and amount are required")
+            
+        category_id = str(uuid.uuid4())
+        category = {
+            "id": category_id,
+            "name": category_data["name"],
+            "amount": category_data["amount"],
+            "spent": 0.0,
+            "created_at": datetime.now().isoformat(),
+            "user_id": current_user.get("id")
+        }
+        
+        return {"success": True, "category": category}
+        
+    except Exception as e:
+        logger.error(f"Create budget category error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to create category")
+
+@app.get("/api/budget/transactions")
+async def get_budget_transactions(current_user: dict = Depends(get_current_user)):
+    """Get budget transactions"""
+    try:
+        # Mock transaction data - will connect to real system
+        transactions = [
+            {
+                "id": str(uuid.uuid4()),
+                "amount": 120.50,
+                "category": "Travel",
+                "description": "Flight booking",
+                "date": "2024-01-15",
+                "type": "expense"
+            },
+            {
+                "id": str(uuid.uuid4()),
+                "amount": 45.00,
+                "category": "Food",
+                "description": "Restaurant dinner",
+                "date": "2024-01-14",
+                "type": "expense"
+            }
+        ]
+        
+        return {"transactions": transactions}
+        
+    except Exception as e:
+        logger.error(f"Get transactions error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to get transactions")
+
+# Gaming System Endpoints
+@app.get("/api/games/rules/{game_name}")
+async def get_game_rules(game_name: str):
+    """Get rules for specific game with AI explanation"""
+    try:
+        if not gemini_model:
+            return {"error": "AI service unavailable"}
+            
+        prompt = f"""
+        Explain the rules for the {game_name} game in a family-friendly way.
+        Focus on how families can play together, including different age groups.
+        Keep it concise but comprehensive.
+        """
+        
+        response = gemini_model.generate_content(prompt)
+        rules_text = response.text.strip()
+        
+        return {
+            "game": game_name,
+            "rules": rules_text,
+            "min_players": 4 if game_name.lower() == "mafia" else 2,
+            "max_players": 12 if game_name.lower() == "mafia" else 8,
+            "duration": "30-60 minutes"
+        }
+        
+    except Exception as e:
+        logger.error(f"Game rules error: {e}")
+        return {"error": "Failed to get game rules"}
+
+@app.post("/api/games/location/challenges")
+async def create_location_challenge(challenge_data: dict, current_user: dict = Depends(get_current_user)):
+    """Create location-based challenge"""
+    try:
+        challenge_id = str(uuid.uuid4())
+        challenge = {
+            "id": challenge_id,
+            "title": challenge_data.get("title", "Family Challenge"),
+            "description": challenge_data.get("description", "Complete this challenge together!"),
+            "location": challenge_data.get("location"),
+            "created_by": current_user.get("id"),
+            "created_at": datetime.now().isoformat(),
+            "status": "active"
+        }
+        
+        return {"success": True, "challenge": challenge}
+        
+    except Exception as e:
+        logger.error(f"Create challenge error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to create challenge")
+
 if __name__ == "__main__":
     uvicorn.run(
         "main:app",
         host="0.0.0.0",
-        port=8001,
+        port=8000,
         reload=True,
         log_level="info"
     ) 

@@ -140,11 +140,15 @@ class WebSocketRedisManager:
         
     async def startup(self):
         """Initialize WebSocket manager"""
-        # Setup Redis pub/sub listener
-        self.redis_pubsub = redis_manager.async_redis
-        self.pubsub_task = asyncio.create_task(self._listen_to_redis())
-        
-        logger.info("WebSocket Redis Manager started")
+        # Setup Redis pub/sub listener if Redis is available
+        if redis_manager.is_connected() and redis_manager.async_redis:
+            self.redis_pubsub = redis_manager.async_redis
+            self.pubsub_task = asyncio.create_task(self._listen_to_redis())
+            logger.info("WebSocket Redis Manager started with Redis pub/sub")
+        else:
+            logger.warning("WebSocket Redis Manager started without Redis pub/sub")
+            self.redis_pubsub = None
+            self.pubsub_task = None
     
     async def shutdown(self):
         """Cleanup WebSocket manager"""
@@ -389,6 +393,11 @@ class WebSocketRedisManager:
     
     async def _listen_to_redis(self):
         """Listen to Redis pub/sub for cross-server messages"""
+        # Skip if Redis is not available
+        if not redis_manager.is_connected() or not redis_manager.async_redis:
+            logger.warning("Redis not available for pub/sub, skipping listener setup")
+            return
+            
         async def message_handler(channel: str, message_data: str):
             try:
                 # Remove 'ws:' prefix
@@ -403,9 +412,16 @@ class WebSocketRedisManager:
             except Exception as e:
                 logger.error(f"Failed to process Redis message: {e}")
         
-        # Subscribe to all WebSocket channels
-        channels = ["ws:*"]
-        await redis_manager.subscribe(channels, message_handler)
+        try:
+            # Subscribe to all WebSocket channels
+            channels = ["ws:*"]
+            success = await redis_manager.subscribe(channels, message_handler)
+            if success:
+                logger.info("Successfully subscribed to Redis pub/sub channels")
+            else:
+                logger.warning("Failed to subscribe to Redis pub/sub channels")
+        except Exception as e:
+            logger.error(f"Error setting up Redis pub/sub listener: {e}")
     
     async def handle_incoming_message(self, connection_id: str, message_data: str):
         """Handle incoming WebSocket message"""
@@ -588,6 +604,12 @@ class WebSocketRedisManager:
             'total_messages_received': self.total_messages_received,
             'connections_count': self.connections_count
         }
+        
+    def is_connected(self) -> bool:
+        """Check if WebSocket manager is connected and available"""
+        # Consider the WebSocket manager connected if Redis is available
+        # or if we have active connections
+        return redis_manager.is_connected() or len(self.connections) > 0
 
 # Global WebSocket manager instance
-websocket_manager = WebSocketRedisManager() 
+websocket_manager = WebSocketRedisManager()

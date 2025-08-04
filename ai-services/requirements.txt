@@ -13,3 +13,7 @@ ultralytics>=8.0.0  # For YOLOv8
 tqdm>=4.65.0
 matplotlib>=3.7.0
 opencv-python>=4.8.0
+passlib
+face-recognition
+scikit-image
+dlib
