@@ -1,0 +1,22 @@
+[33mcommit cafe0592a4766d1825e5efcf09585cdbc7a5df00[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m)[m
+Author: Elmowafiplatform Deploy <elmowafiplatform@github.com>
+Date:   Tue Aug 5 20:13:26 2025 +0300
+
+    Update project with latest features: AI game referee, mafia game engine, memory timeline, and enhanced services
+
+ .env.production                                    |   44 [32m+[m
+ FINAL_DEPLOYMENT_TODO.md                           |  332 [32m+++++[m
+ elmowafiplatform-api/ai_game_referee.py            | 1379 [32m++++++++++++++++++++[m
+ elmowafiplatform-api/ai_service_gateway.py         |  335 [32m+++++[m
+ elmowafiplatform-api/cheat_detection_algorithms.py |  859 [32m++++++++++++[m
+ elmowafiplatform-api/game_state.py                 |    2 [32m+[m
+ elmowafiplatform-api/game_state_synchronization.py |  742 [32m+++++++++++[m
+ elmowafiplatform-api/mafia_game_engine.py          | 1154 [32m++++++++++++++++[m
+ elmowafiplatform-api/main.py                       | 1028 [32m++++++++++++++[m[31m-[m
+ elmowafiplatform-api/memory_timeline_engine.py     |  708 [32m++++++++++[m
+ elmowafiplatform-api/smart_memory_suggestions.py   |  726 [32m+++++++++++[m
+ elmowafiplatform-api/websocket_redis_manager.py    |  225 [32m+++[m[31m-[m
+ elmowafy-travels-oasis/.env.production             |   92 [32m++[m
+ .../src/services/__tests__/aiService.test.ts       |  165 [32m++[m[31m-[m
+ elmowafy-travels-oasis/src/services/aiService.ts   |   13 [32m+[m[31m-[m
+ 15 files changed, 7720 insertions(+), 84 deletions(-)

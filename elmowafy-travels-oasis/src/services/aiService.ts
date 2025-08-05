@@ -84,7 +84,7 @@ export interface TeachingStyle {
 
 class AIService {
   // Base URL for AI service endpoints
-  private baseURL = import.meta.env.VITE_AI_SERVICE_URL || '/api/v1/ai';
+  private baseURL = (import.meta.env.VITE_AI_SERVICE_URL as string) || '/api/ai';
 
   /**
    * Analyze uploaded family photo with AI
@@ -167,31 +167,40 @@ class AIService {
 
   /**
    * Get AI-powered travel recommendations based on family preferences
+   * @param data Travel preferences and requirements
+   * @returns Promise with travel recommendations
    */
   async getTravelRecommendations(data: {
-    destination?: string;
-    budget?: number;
-    duration?: number;
-    familyMembers?: string[];
-    preferences?: Record<string, any>;
+    destination: string;
+    budget: number;
+    duration: number;
+    familyMembers: string[];
+    preferences?: {
+      interests?: string[];
+      accessibilityNeeds?: string[];
+      dietaryRestrictions?: string[];
+      pace?: 'relaxed' | 'moderate' | 'active';
+      accommodationType?: 'budget' | 'mid-range' | 'luxury';
+    };
   }): Promise<TravelRecommendation> {
     try {
-      const response = await api.post(`${this.baseURL}/travel-recommendations`, {
-        destination: data.destination,
-        budget: data.budget,
-        duration: data.duration,
-        family_members: data.familyMembers || [],
-        preferences: data.preferences || {}
+      const response = await api.post(`${this.baseURL}/travel-recommendations`, data, {
+        headers: {
+          'Content-Type': 'application/json',
+        },
       });
-      
-      if (response?.data?.data?.recommendations) {
-        return response.data.data.recommendations;
+
+      if (!response.data) {
+        throw new Error('No data received from the server');
       }
-      
-      throw new Error('Invalid response format from travel recommendations service');
+
+      return response.data as TravelRecommendation;
     } catch (error) {
       console.error('Error getting travel recommendations:', error);
-      throw new Error('Failed to get travel recommendations. Please try again later.');
+      const errorMessage = error && typeof error === 'object' && 'response' in error
+        ? (error as any).response?.data?.message
+        : 'Failed to get travel recommendations. Please try again later.';
+      throw new Error(errorMessage);
     }
   }
 

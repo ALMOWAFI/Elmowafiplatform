@@ -16,7 +16,7 @@ import MobileNavigation from './components/MobileNavigation';
 const FamilyDashboard = React.lazy(() => import('./pages/FamilyDashboard'));
 const MemoriesPage = React.lazy(() => import('./pages/MemoriesPage'));
 const AuthPage = React.lazy(() => import('./pages/AuthPage'));
-const TravelPlanningPage = React.lazy(() => import('./pages/TravelPlanningPage'));
+const TravelPlannerPage = React.lazy(() => import('./pages/TravelPlannerPage'));
 const GamingPage = React.lazy(() => import('./pages/GamingPage'));
 const ProfilePage = React.lazy(() => import('./pages/ProfilePage'));
 const NotificationsPage = React.lazy(() => import('./pages/NotificationsPage'));
@@ -82,6 +82,8 @@ function App() {
       
       return () => observer.disconnect();
     }
+    
+    return () => {}; // Return a no-op cleanup function if the condition is false
   }, []);
 
   return (
@@ -99,7 +101,7 @@ function App() {
               <Route path="/" element={<Suspense fallback={<PageLoadingFallback page="Dashboard" />}><FamilyDashboard /></Suspense>} />
               <Route path="/auth" element={<Suspense fallback={<PageLoadingFallback />}><AuthPage /></Suspense>} />
               <Route path="/memories" element={<Suspense fallback={<PageLoadingFallback page="Memories" />}><MemoriesPage /></Suspense>} />
-              <Route path="/travel-planning" element={<Suspense fallback={<PageLoadingFallback page="Travel Planning" />}><TravelPlanningPage /></Suspense>} />
+              <Route path="/travel-planner" element={<Suspense fallback={<PageLoadingFallback page="Travel Planner" />}><TravelPlannerPage /></Suspense>} />
               <Route path="/gaming" element={<Suspense fallback={<PageLoadingFallback page="Gaming Hub" />}><GamingPage /></Suspense>} />
               <Route path="/profile" element={<Suspense fallback={<PageLoadingFallback />}><ProfilePage /></Suspense>} />
               <Route path="/notifications" element={<Suspense fallback={<PageLoadingFallback />}><NotificationsPage /></Suspense>} />
@@ -126,7 +128,7 @@ function App() {
       </AuthProvider>
       
       {/* React Query DevTools (only in development) */}
-      {process.env.NODE_ENV === 'development' && (
+      {import.meta.env.DEV && (
         <ReactQueryDevtools initialIsOpen={false} />
       )}
     </QueryClientProvider>
