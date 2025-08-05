@@ -51,8 +51,29 @@ class MessageType(Enum):
     # Gaming updates
     GAME_INVITATION = "game_invitation"
     GAME_UPDATE = "game_update"
+    GAME_JOINED = "game_joined"
+    GAME_LEFT = "game_left"
+    GAME_STARTED = "game_started"
+    GAME_ENDED = "game_ended"
+    GAME_PAUSED = "game_paused" 
+    GAME_RESUMED = "game_resumed"
+    PLAYER_JOINED = "player_joined"
+    PLAYER_LEFT = "player_left"
+    PLAYER_READY = "player_ready"
+    PLAYER_NOT_READY = "player_not_ready"
     ACHIEVEMENT_UNLOCKED = "achievement_unlocked"
     CHALLENGE_COMPLETED = "challenge_completed"
+    
+    # Mafia Game Specific
+    MAFIA_ROLE_ASSIGNED = "mafia_role_assigned"
+    MAFIA_PHASE_CHANGE = "mafia_phase_change"
+    MAFIA_VOTING_STARTED = "mafia_voting_started"
+    MAFIA_VOTE_CAST = "mafia_vote_cast"
+    MAFIA_PLAYER_ELIMINATED = "mafia_player_eliminated"
+    MAFIA_GAME_OVER = "mafia_game_over"
+    MAFIA_NIGHT_ACTION = "mafia_night_action"
+    MAFIA_DAY_DISCUSSION = "mafia_day_discussion"
+    MAFIA_REFEREE_DECISION = "mafia_referee_decision"
     
     # Notifications
     NOTIFICATION = "notification"
@@ -593,6 +614,204 @@ class WebSocketRedisManager:
         
         return len(stale_connections)
     
+    # Gaming-specific methods
+    async def broadcast_to_game(self, session_id: str, message: WebSocketMessage):
+        """Broadcast message to all players in a game session"""
+        channel = f"game:{session_id}"
+        return await self.broadcast_to_channel(channel, message)
+    
+    async def subscribe_to_game(self, connection_id: str, session_id: str):
+        """Subscribe connection to game updates"""
+        channel = f"game:{session_id}"
+        await self.subscribe_to_channel(connection_id, channel)
+    
+    async def unsubscribe_from_game(self, connection_id: str, session_id: str):
+        """Unsubscribe connection from game updates"""
+        channel = f"game:{session_id}"
+        await self.unsubscribe_from_channel(connection_id, channel)
+    
+    async def send_game_invitation(self, 
+                                  host_user_id: str,
+                                  invited_user_ids: List[str], 
+                                  game_data: Dict[str, Any]):
+        """Send game invitation to specific users"""
+        invitation_message = WebSocketMessage(
+            type=MessageType.GAME_INVITATION,
+            data={
+                'host_user_id': host_user_id,
+                'game_type': game_data.get('game_type'),
+                'session_id': game_data.get('session_id'),
+                'title': game_data.get('title'),
+                'description': game_data.get('description'),
+                'max_players': game_data.get('max_players'),
+                'invitation_id': f"invite_{datetime.now().timestamp()}"
+            },
+            sender_id=host_user_id,
+            target_users=invited_user_ids
+        )
+        
+        sent_count = 0
+        for user_id in invited_user_ids:
+            sent_count += await self.send_to_user(user_id, invitation_message)
+        
+        return sent_count
+    
+    async def notify_game_state_change(self, 
+                                     session_id: str,
+                                     event_type: MessageType,
+                                     data: Dict[str, Any],
+                                     exclude_users: List[str] = None):
+        """Notify all game participants of state changes"""
+        message = WebSocketMessage(
+            type=event_type,
+            data={
+                'session_id': session_id,
+                'timestamp': datetime.now().isoformat(),
+                **data
+            }
+        )
+        
+        return await self.broadcast_to_game(session_id, message)
+    
+    async def send_mafia_role_assignment(self, 
+                                       session_id: str,
+                                       player_id: str,
+                                       role_data: Dict[str, Any]):
+        """Send private role assignment to Mafia player"""
+        role_message = WebSocketMessage(
+            type=MessageType.MAFIA_ROLE_ASSIGNED,
+            data={
+                'session_id': session_id,
+                'role': role_data['role'],
+                'abilities': role_data.get('abilities', []),
+                'team': role_data.get('team'),
+                'description': role_data.get('description'),
+                'secret_info': role_data.get('secret_info')
+            }
+        )
+        
+        return await self.send_to_user(player_id, role_message)
+    
+    async def broadcast_mafia_phase_change(self, 
+                                         session_id: str,
+                                         phase_data: Dict[str, Any]):
+        """Broadcast Mafia game phase changes to all players"""
+        phase_message = WebSocketMessage(
+            type=MessageType.MAFIA_PHASE_CHANGE,
+            data={
+                'session_id': session_id,
+                'current_phase': phase_data['phase'],
+                'phase_description': phase_data.get('description'),
+                'time_limit': phase_data.get('time_limit'),
+                'allowed_actions': phase_data.get('allowed_actions', []),
+                'round_number': phase_data.get('round_number'),
+                'day_number': phase_data.get('day_number')
+            }
+        )
+        
+        return await self.broadcast_to_game(session_id, phase_message)
+    
+    async def send_mafia_night_actions_request(self, 
+                                             session_id: str,
+                                             player_actions: Dict[str, Dict[str, Any]]):
+        """Send night action requests to specific Mafia players"""
+        sent_count = 0
+        
+        for player_id, action_data in player_actions.items():
+            action_message = WebSocketMessage(
+                type=MessageType.MAFIA_NIGHT_ACTION,
+                data={
+                    'session_id': session_id,
+                    'action_type': 'request',
+                    'available_actions': action_data.get('available_actions', []),
+                    'target_options': action_data.get('target_options', []),
+                    'time_limit': action_data.get('time_limit', 60)
+                }
+            )
+            
+            if await self.send_to_user(player_id, action_message):
+                sent_count += 1
+        
+        return sent_count
+    
+    async def broadcast_mafia_voting_start(self, 
+                                         session_id: str,
+                                         voting_data: Dict[str, Any]):
+        """Broadcast start of Mafia voting phase"""
+        voting_message = WebSocketMessage(
+            type=MessageType.MAFIA_VOTING_STARTED,
+            data={
+                'session_id': session_id,
+                'voting_type': voting_data['voting_type'],
+                'candidates': voting_data.get('candidates', []),
+                'time_limit': voting_data.get('time_limit', 120),
+                'voting_round': voting_data.get('voting_round', 1),
+                'required_majority': voting_data.get('required_majority')
+            }
+        )
+        
+        return await self.broadcast_to_game(session_id, voting_message)
+    
+    async def broadcast_mafia_vote_cast(self, 
+                                      session_id: str,
+                                      vote_data: Dict[str, Any]):
+        """Broadcast that a vote was cast (without revealing the vote)"""
+        vote_message = WebSocketMessage(
+            type=MessageType.MAFIA_VOTE_CAST,
+            data={
+                'session_id': session_id,
+                'voter_id': vote_data['voter_id'],
+                'timestamp': datetime.now().isoformat(),
+                'votes_remaining': vote_data.get('votes_remaining'),
+                'anonymous': vote_data.get('anonymous', True)
+            }
+        )
+        
+        return await self.broadcast_to_game(session_id, vote_message)
+    
+    async def broadcast_mafia_elimination(self, 
+                                        session_id: str,
+                                        elimination_data: Dict[str, Any]):
+        """Broadcast player elimination in Mafia game"""
+        elimination_message = WebSocketMessage(
+            type=MessageType.MAFIA_PLAYER_ELIMINATED,
+            data={
+                'session_id': session_id,
+                'eliminated_player_id': elimination_data['player_id'],
+                'elimination_reason': elimination_data.get('reason'),
+                'revealed_role': elimination_data.get('revealed_role'),
+                'elimination_message': elimination_data.get('message'),
+                'remaining_players': elimination_data.get('remaining_players', [])
+            }
+        )
+        
+        return await self.broadcast_to_game(session_id, elimination_message)
+    
+    async def send_ai_referee_decision(self, 
+                                     session_id: str,
+                                     decision_data: Dict[str, Any],
+                                     target_players: List[str] = None):
+        """Send AI referee decision to players"""
+        decision_message = WebSocketMessage(
+            type=MessageType.MAFIA_REFEREE_DECISION,
+            data={
+                'session_id': session_id,
+                'decision_type': decision_data['decision_type'],
+                'decision_reason': decision_data.get('reason'),
+                'affected_players': decision_data.get('affected_players', []),
+                'referee_message': decision_data.get('message'),
+                'enforcement_action': decision_data.get('enforcement_action')
+            }
+        )
+        
+        if target_players:
+            sent_count = 0
+            for player_id in target_players:
+                sent_count += await self.send_to_user(player_id, decision_message)
+            return sent_count
+        else:
+            return await self.broadcast_to_game(session_id, decision_message)
+    
     def get_stats(self) -> Dict[str, Any]:
         """Get WebSocket manager statistics"""
         return {
@@ -613,3 +832,7 @@ class WebSocketRedisManager:
 
 # Global WebSocket manager instance
 websocket_manager = WebSocketRedisManager()
+
+def get_websocket_manager() -> WebSocketRedisManager:
+    """Get the global WebSocket manager instance"""
+    return websocket_manager

@@ -7,7 +7,7 @@ Production-ready FastAPI application with all production features
 import os
 import logging
 from datetime import datetime
-from fastapi import FastAPI, Depends, HTTPException, Request, Response, UploadFile
+from fastapi import FastAPI, Depends, HTTPException, Request, Response, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -60,6 +60,19 @@ from error_responses import (
 # Import new photo and game systems
 from photo_upload import get_photo_upload_system, get_album_management, get_family_photo_linking
 from game_state import get_game_state_manager
+
+# Import AI service gateway
+from ai_service_gateway import get_ai_gateway
+
+# Import Mafia game and AI referee
+from mafia_game_engine import get_mafia_engine
+from ai_game_referee import get_ai_referee
+
+# Import WebSocket system
+from websocket_redis_manager import get_websocket_manager, WebSocketMessage, MessageType
+
+# Import game state synchronization
+from game_state_synchronization import get_game_synchronizer
 
 # Enhanced database functionality now in unified_database
 
@@ -265,8 +278,8 @@ async def health_check():
             name for name, state in circuit_breaker_states.items() 
             if state["state"] == "open"
     ]
-    
-    return {
+        
+        return {
             "status": "healthy" if not open_circuits else "degraded",
             "timestamp": datetime.now().isoformat(),
             "version": "2.0.0",
@@ -274,7 +287,7 @@ async def health_check():
             "open_circuits": open_circuits,
             "uptime": performance_monitor.get_uptime()
             }
-        except Exception as e:
+    except Exception as e:
         logger.error(f"Health check failed: {e}")
         capture_exception(e)
         raise StandardHTTPException(
@@ -322,7 +335,7 @@ async def circuit_breaker_health_check():
     try:
         circuit_health = get_circuit_breaker_health()
         
-            return {
+        return {
             "status": circuit_health["overall_status"],
             "timestamp": circuit_health["timestamp"],
             "total_circuit_breakers": circuit_health["total_circuit_breakers"],
@@ -402,7 +415,7 @@ async def login_user(credentials: UserCredentials):
         
     except HTTPException:
         raise
-    except Exception as e:
+        except Exception as e:
         logger.error(f"Login endpoint error: {e}")
         capture_exception(e)
         raise AuthenticationException(
@@ -434,7 +447,7 @@ async def refresh_access_token(refresh_token: str):
 async def get_current_user_info(current_user: AuthUser = Depends(get_current_user)):
     """Get current user information"""
     try:
-        return {
+            return {
             "id": current_user.id,
             "email": current_user.email,
             "username": current_user.username,
@@ -442,8 +455,8 @@ async def get_current_user_info(current_user: AuthUser = Depends(get_current_use
             "is_active": current_user.is_active,
             "family_groups": current_user.family_groups,
             "roles": current_user.roles
-        }
-    except Exception as e:
+            }
+        except Exception as e:
         logger.error(f"Get user info error: {e}")
         capture_exception(e)
         raise StandardHTTPException(
@@ -549,7 +562,7 @@ async def create_memory(
             )
             logger.info(f"Memory created: {memory_id}")
             return {"id": memory_id, "status": "created"}
-        else:
+    else:
             raise StandardHTTPException(
                 status_code=500,
                 error="Memory Creation Failed",
@@ -590,7 +603,7 @@ async def get_memories(
         
         memories = db.get_memories(family_group_id, filters)
         return memories
-            except Exception as e:
+    except Exception as e:
         logger.error(f"Error getting memories: {e}")
         capture_exception(e)
         raise StandardHTTPException(
@@ -620,7 +633,7 @@ async def create_budget_profile(
                 message="Unable to create budget profile record",
                 error_code=ErrorCodes.DATABASE_ERROR
             )
-        except Exception as e:
+    except Exception as e:
         logger.error(f"Error creating budget profile: {e}")
         capture_exception(e)
         raise StandardHTTPException(
@@ -854,7 +867,7 @@ async def create_cultural_heritage(
         if heritage_id:
             logger.info(f"Cultural heritage created: {heritage_id}")
             return {"id": heritage_id, "status": "created"}
-        else:
+    else:
             raise StandardHTTPException(
                 status_code=500,
                 error="Cultural Heritage Creation Failed",
@@ -975,7 +988,7 @@ async def upload_photo(
                     code="PHOTO_UPLOAD_FAILED"
                 )
             ])
-            
+        
     except Exception as e:
         logger.error(f"Photo upload failed: {e}")
         capture_exception(e)
@@ -1012,7 +1025,7 @@ async def create_album(album: AlbumCreateRequest):
                 )
             ])
         
-    except Exception as e:
+            except Exception as e:
         logger.error(f"Album creation failed: {e}")
         capture_exception(e)
         raise StandardHTTPException(
@@ -1225,7 +1238,7 @@ async def get_game_session(session_id: str):
         game_manager = get_game_state_manager()
         # This would need to be implemented in the game manager
         # For now, return a placeholder
-        return {
+    return {
             "session_id": session_id,
             "status": "active",
             "message": "Game session details endpoint - to be implemented"
@@ -1239,6 +1252,673 @@ async def get_game_session(session_id: str):
             message="An error occurred while retrieving game session",
             error_code=ErrorCodes.INTERNAL_SERVER_ERROR
         )
+
+# ============================================================================
+# AI SERVICES ENDPOINTS
+# ============================================================================
+
+@app.get("/api/v1/ai/health")
+async def ai_services_health():
+    """Check health of all AI services"""
+    try:
+        ai_gateway = get_ai_gateway()
+        health_status = await ai_gateway.health_check()
+        
+        overall_status = "healthy"
+        if any(service['status'] != 'healthy' for service in health_status.values()):
+            overall_status = "degraded"
+        
+        return {
+            "overall_status": overall_status,
+        "timestamp": datetime.now().isoformat(),
+            "services": health_status
+        }
+    except Exception as e:
+        logger.error(f"AI services health check failed: {e}")
+        capture_exception(e)
+        raise StandardHTTPException(
+            status_code=500,
+            error="AI Services Health Check Failed",
+            message="Unable to check AI services health",
+            error_code=ErrorCodes.SERVICE_UNAVAILABLE
+        )
+
+@app.post("/api/v1/ai/analyze-photo", response_model=Dict[str, Any])
+@rate_limit("ai")
+async def ai_analyze_photo(
+    file: UploadFile,
+    family_group_id: str,
+    family_members: Optional[str] = None,
+    current_user: AuthUser = Depends(get_current_user)
+):
+    """AI-powered family photo analysis"""
+    try:
+        # Read file data
+        photo_data = await file.read()
+        
+        # Parse family members
+        family_member_list = family_members.split(',') if family_members else None
+        
+        # Get AI gateway and analyze photo
+        ai_gateway = get_ai_gateway()
+        result = await ai_gateway.analyze_family_photo(
+            photo_data=photo_data,
+            filename=file.filename,
+            family_group_id=family_group_id,
+            family_members=family_member_list
+        )
+        
+        if 'error' in result:
+            raise ValidationException([
+                ErrorDetail(
+                    message=result['error'],
+                    code="AI_PHOTO_ANALYSIS_FAILED"
+                )
+            ])
+        
+        logger.info(f"Photo analyzed successfully for family group: {family_group_id}")
+    return result
+
+    except Exception as e:
+        logger.error(f"AI photo analysis failed: {e}")
+        capture_exception(e)
+        raise StandardHTTPException(
+            status_code=500,
+            error="AI Photo Analysis Failed",
+            message="An error occurred during AI photo analysis",
+            error_code=ErrorCodes.EXTERNAL_SERVICE_ERROR
+        )
+
+@app.post("/api/v1/ai/travel-suggestions", response_model=Dict[str, Any])
+@rate_limit("ai")
+async def ai_travel_suggestions(
+    family_size: int,
+    budget: str,
+    interests: List[str],
+    location_preferences: Optional[List[str]] = None,
+    current_user: AuthUser = Depends(get_current_user)
+):
+    """AI-powered travel suggestions for families"""
+    try:
+        ai_gateway = get_ai_gateway()
+        result = await ai_gateway.get_travel_suggestions(
+            family_size=family_size,
+            budget=budget,
+            interests=interests,
+            location_preferences=location_preferences
+        )
+        
+        if 'error' in result:
+            raise ValidationException([
+                ErrorDetail(
+                    message=result['error'],
+                    code="AI_TRAVEL_SUGGESTIONS_FAILED"
+                )
+            ])
+        
+        logger.info(f"Travel suggestions generated for family size: {family_size}")
+        return result
+        
+    except Exception as e:
+        logger.error(f"AI travel suggestions failed: {e}")
+        capture_exception(e)
+        raise StandardHTTPException(
+            status_code=500,
+            error="AI Travel Suggestions Failed",
+            message="An error occurred generating travel suggestions",
+            error_code=ErrorCodes.EXTERNAL_SERVICE_ERROR
+        )
+
+@app.post("/api/v1/ai/memory-suggestions", response_model=Dict[str, Any])
+@rate_limit("ai")
+async def ai_memory_suggestions(
+    family_group_id: str,
+    current_date: Optional[str] = None,
+    memory_types: Optional[List[str]] = None,
+    current_user: AuthUser = Depends(get_current_user)
+):
+    """AI-powered memory suggestions for families"""
+    try:
+        ai_gateway = get_ai_gateway()
+        result = await ai_gateway.get_memory_suggestions(
+            family_group_id=family_group_id,
+            current_date=current_date,
+            memory_types=memory_types
+        )
+        
+        if 'error' in result:
+            raise ValidationException([
+                ErrorDetail(
+                    message=result['error'],
+                    code="AI_MEMORY_SUGGESTIONS_FAILED"
+                )
+            ])
+        
+        logger.info(f"Memory suggestions generated for family group: {family_group_id}")
+    return result
+
+    except Exception as e:
+        logger.error(f"AI memory suggestions failed: {e}")
+        capture_exception(e)
+        raise StandardHTTPException(
+            status_code=500,
+            error="AI Memory Suggestions Failed",
+            message="An error occurred generating memory suggestions",
+            error_code=ErrorCodes.EXTERNAL_SERVICE_ERROR
+        )
+
+@app.post("/api/v1/ai/facial-recognition", response_model=Dict[str, Any])
+@rate_limit("ai")
+async def ai_facial_recognition(
+    file: UploadFile,
+    known_faces: str,  # JSON string of known faces data
+    current_user: AuthUser = Depends(get_current_user)
+):
+    """AI-powered facial recognition for family photos"""
+    try:
+        import json
+        
+        # Read file data
+        photo_data = await file.read()
+        
+        # Parse known faces data
+        try:
+            known_faces_data = json.loads(known_faces)
+        except json.JSONDecodeError:
+            raise ValidationException([
+                ErrorDetail(
+                    message="Invalid known_faces JSON format",
+                    code="INVALID_JSON_FORMAT"
+                )
+            ])
+        
+        # Get AI gateway and process facial recognition
+        ai_gateway = get_ai_gateway()
+        result = await ai_gateway.process_facial_recognition(
+            photo_data=photo_data,
+            filename=file.filename,
+            known_faces=known_faces_data
+        )
+        
+        if 'error' in result:
+            raise ValidationException([
+                ErrorDetail(
+                    message=result['error'],
+                    code="AI_FACIAL_RECOGNITION_FAILED"
+                )
+            ])
+        
+        logger.info(f"Facial recognition processed for photo: {file.filename}")
+    return result
+
+    except Exception as e:
+        logger.error(f"AI facial recognition failed: {e}")
+        capture_exception(e)
+        raise StandardHTTPException(
+            status_code=500,
+            error="AI Facial Recognition Failed",
+            message="An error occurred during facial recognition",
+            error_code=ErrorCodes.EXTERNAL_SERVICE_ERROR
+        )
+
+@app.post("/api/v1/ai/generate-timeline", response_model=Dict[str, Any])
+@rate_limit("ai")
+async def ai_generate_memory_timeline(
+    family_group_id: str,
+    photos: List[Dict[str, Any]],
+    date_range: Optional[List[str]] = None,
+    current_user: AuthUser = Depends(get_current_user)
+):
+    """AI-powered memory timeline generation"""
+    try:
+        # Convert date_range list to tuple if provided
+        date_range_tuple = tuple(date_range) if date_range and len(date_range) == 2 else None
+        
+        ai_gateway = get_ai_gateway()
+        result = await ai_gateway.generate_memory_timeline(
+            family_group_id=family_group_id,
+            photos=photos,
+            date_range=date_range_tuple
+        )
+        
+        if 'error' in result:
+            raise ValidationException([
+                ErrorDetail(
+                    message=result['error'],
+                    code="AI_TIMELINE_GENERATION_FAILED"
+                )
+            ])
+        
+        logger.info(f"Memory timeline generated for family group: {family_group_id}")
+        return result
+        
+    except Exception as e:
+        logger.error(f"AI timeline generation failed: {e}")
+        capture_exception(e)
+        raise StandardHTTPException(
+            status_code=500,
+            error="AI Timeline Generation Failed",
+            message="An error occurred generating memory timeline",
+            error_code=ErrorCodes.EXTERNAL_SERVICE_ERROR
+        )
+
+@app.post("/api/v1/ai/cluster-photos", response_model=Dict[str, Any])
+@rate_limit("ai")
+async def ai_cluster_photos(
+    photos: List[Dict[str, Any]],
+    clustering_method: str = "facial_similarity",
+    current_user: AuthUser = Depends(get_current_user)
+):
+    """AI-powered photo clustering for album suggestions"""
+    try:
+        ai_gateway = get_ai_gateway()
+        result = await ai_gateway.cluster_photos_by_similarity(
+            photos=photos,
+            clustering_method=clustering_method
+        )
+        
+        if 'error' in result:
+            raise ValidationException([
+                ErrorDetail(
+                    message=result['error'],
+                    code="AI_PHOTO_CLUSTERING_FAILED"
+                )
+            ])
+        
+        logger.info(f"Photo clustering completed using method: {clustering_method}")
+        return result
+        
+    except Exception as e:
+        logger.error(f"AI photo clustering failed: {e}")
+        capture_exception(e)
+        raise StandardHTTPException(
+            status_code=500,
+            error="AI Photo Clustering Failed",
+            message="An error occurred during photo clustering",
+            error_code=ErrorCodes.EXTERNAL_SERVICE_ERROR
+        )
+
+# ============================================================================
+# MAFIA GAME ENDPOINTS
+# ============================================================================
+
+@app.post("/api/v1/games/mafia/create", response_model=Dict[str, Any])
+@rate_limit("games")
+async def create_mafia_game(
+    family_group_id: str,
+    game_settings: Optional[Dict[str, Any]] = None,
+    current_user: AuthUser = Depends(get_current_user)
+):
+    """Create a new Mafia game session"""
+    try:
+        mafia_engine = get_mafia_engine()
+        result = await mafia_engine.create_game(
+            family_group_id=family_group_id,
+            host_id=current_user.id,
+            game_settings=game_settings or {}
+        )
+        
+        if result["success"]:
+            # Initialize AI referee
+            ai_referee = get_ai_referee()
+            referee_result = await ai_referee.initialize_referee_for_game(
+                session_id=result["session_id"],
+                family_group_id=family_group_id,
+                referee_settings=game_settings.get("referee_settings") if game_settings else None
+            )
+            
+            # Send WebSocket notifications to family members
+            websocket_manager = get_websocket_manager()
+            await websocket_manager.notify_game_state_change(
+                session_id=result['session_id'],
+                event_type=MessageType.GAME_UPDATE,
+                data={
+                    'action': 'game_created',
+                    'game_type': 'mafia',
+                    'host_user_id': current_user.id,
+                    'family_group_id': family_group_id,
+                    'ai_referee_active': referee_result.get("success", False)
+                }
+            )
+            
+            logger.info(f"Mafia game created: {result['session_id']}")
+        return {
+                **result,
+                "ai_referee_active": referee_result.get("success", False)
+            }
+        else:
+            raise ValidationException([
+                ErrorDetail(
+                    message=result.get("error", "Failed to create game"),
+                    code="MAFIA_GAME_CREATION_FAILED"
+                )
+            ])
+        
+    except Exception as e:
+        logger.error(f"Mafia game creation failed: {e}")
+        capture_exception(e)
+        raise StandardHTTPException(
+            status_code=500,
+            error="Mafia Game Creation Failed",
+            message="An error occurred while creating the Mafia game",
+            error_code=ErrorCodes.INTERNAL_SERVER_ERROR
+        )
+
+@app.post("/api/v1/games/mafia/{session_id}/join", response_model=Dict[str, Any])
+@rate_limit("games")
+async def join_mafia_game(
+    session_id: str,
+    player_name: str,
+    current_user: AuthUser = Depends(get_current_user)
+):
+    """Join an existing Mafia game"""
+    try:
+        mafia_engine = get_mafia_engine()
+        result = await mafia_engine.join_game(
+            session_id=session_id,
+            player_id=current_user.id,
+            player_name=player_name,
+            family_member_id=current_user.id
+        )
+        
+        if result["success"]:
+            # Send WebSocket notification to all game participants
+            websocket_manager = get_websocket_manager()
+            await websocket_manager.notify_game_state_change(
+                session_id=session_id,
+                event_type=MessageType.PLAYER_JOINED,
+                data={
+                    'player_id': current_user.id,
+                    'player_name': player_name,
+                    'total_players': result.get('total_players', 0)
+                }
+            )
+            
+            logger.info(f"Player {player_name} joined Mafia game: {session_id}")
+        return result
+        else:
+            raise ValidationException([
+                ErrorDetail(
+                    message=result.get("error", "Failed to join game"),
+                    code="MAFIA_GAME_JOIN_FAILED"
+                )
+            ])
+            
+    except Exception as e:
+        logger.error(f"Mafia game join failed: {e}")
+        capture_exception(e)
+        raise StandardHTTPException(
+            status_code=500,
+            error="Mafia Game Join Failed",
+            message="An error occurred while joining the Mafia game",
+            error_code=ErrorCodes.INTERNAL_SERVER_ERROR
+        )
+
+@app.post("/api/v1/games/mafia/{session_id}/start", response_model=Dict[str, Any])
+@rate_limit("games")
+async def start_mafia_game(
+    session_id: str,
+    current_user: AuthUser = Depends(get_current_user)
+):
+    """Start a Mafia game with AI-balanced role assignment"""
+    try:
+        mafia_engine = get_mafia_engine()
+        
+        # Use AI referee for balanced role assignment
+        ai_referee = get_ai_referee()
+        
+        # Get game state to get players
+        game_state = await redis_manager.get(f"mafia_game:{session_id}", "games")
+        if not game_state:
+            raise NotFoundException("Game session", session_id)
+        
+        # AI-balanced role assignment
+        role_assignment_result = await ai_referee.assign_balanced_roles(
+            session_id=session_id,
+            players=game_state.get("players", {})
+        )
+        
+        if not role_assignment_result["success"]:
+            logger.warning(f"AI role assignment failed, using standard assignment")
+        
+        # Start the game
+        result = await mafia_engine.start_game(
+            session_id=session_id,
+            starter_id=current_user.id
+        )
+        
+        if result["success"]:
+            # Send WebSocket notifications to all players
+            websocket_manager = get_websocket_manager()
+            
+            # Notify game started
+            await websocket_manager.notify_game_state_change(
+                session_id=session_id,
+                event_type=MessageType.GAME_STARTED,
+                data={
+                    'starter_id': current_user.id,
+                    'ai_referee_active': True,
+                    'ai_balance_info': role_assignment_result.get("game_balance") if role_assignment_result["success"] else None
+                }
+            )
+            
+            # Send private role assignments to each player
+            if role_assignment_result["success"] and "role_assignments" in role_assignment_result:
+                for player_id, role_data in role_assignment_result["role_assignments"].items():
+                    await websocket_manager.send_mafia_role_assignment(
+                        session_id=session_id,
+                        player_id=player_id,
+                        role_data=role_data
+                    )
+            
+            logger.info(f"Mafia game started: {session_id}")
+            return {
+                **result,
+                "ai_balance_info": role_assignment_result.get("game_balance") if role_assignment_result["success"] else None
+            }
+        else:
+            raise ValidationException([
+                ErrorDetail(
+                    message=result.get("error", "Failed to start game"),
+                    code="MAFIA_GAME_START_FAILED"
+                )
+            ])
+                
+    except Exception as e:
+        logger.error(f"Mafia game start failed: {e}")
+        capture_exception(e)
+        raise StandardHTTPException(
+            status_code=500,
+            error="Mafia Game Start Failed",
+            message="An error occurred while starting the Mafia game",
+            error_code=ErrorCodes.INTERNAL_SERVER_ERROR
+        )
+
+@app.post("/api/v1/games/mafia/{session_id}/action", response_model=Dict[str, Any])
+@rate_limit("games")
+async def perform_mafia_action(
+    session_id: str,
+    action_type: str,
+    target_id: Optional[str] = None,
+    message: Optional[str] = None,
+    current_user: AuthUser = Depends(get_current_user)
+):
+    """Perform action in Mafia game with AI referee monitoring"""
+    try:
+        # Prepare action data
+        action_data = {"message": message} if message else {}
+        if target_id:
+            action_data["target_id"] = target_id
+        
+        # AI referee monitoring
+        ai_referee = get_ai_referee()
+        referee_check = await ai_referee.monitor_game_action(
+            session_id=session_id,
+            player_id=current_user.id,
+            action_type=action_type,
+            action_data=action_data
+        )
+        
+        # If AI referee blocks the action
+        if not referee_check.get("success", True) or referee_check.get("blocked", False):
+            return {
+                "success": False,
+                "blocked_by_referee": True,
+                "reason": referee_check.get("reason", "Action blocked by AI referee"),
+                "message": referee_check.get("message", "Your action was blocked")
+            }
+        
+        # Perform the action
+        mafia_engine = get_mafia_engine()
+        result = await mafia_engine.perform_action(
+            session_id=session_id,
+            player_id=current_user.id,
+            action_type=action_type,
+            target_id=target_id,
+            additional_data=action_data
+        )
+        
+        if result["success"]:
+            # Send WebSocket notifications based on action type
+            websocket_manager = get_websocket_manager()
+            
+            if action_type == "vote":
+                await websocket_manager.broadcast_mafia_vote_cast(
+                    session_id=session_id,
+                    vote_data={
+                        'voter_id': current_user.id,
+                        'votes_remaining': result.get('votes_remaining'),
+                        'anonymous': True
+                    }
+                )
+            elif action_type in ["kill", "investigate", "heal", "protect"]:
+                # Night actions - notify specific players only
+                await websocket_manager.notify_game_state_change(
+                    session_id=session_id,
+                    event_type=MessageType.MAFIA_NIGHT_ACTION,
+                    data={
+                        'action_type': action_type,
+                        'player_id': current_user.id,
+                        'success': True
+                    }
+                )
+            
+            # If AI referee detected issues, send warning
+            if referee_check.get("success") and referee_check.get("cheat_score", 0) > 0.5:
+                await websocket_manager.send_ai_referee_decision(
+                    session_id=session_id,
+                    decision_data={
+                        'decision_type': 'warning',
+                        'reason': referee_check.get("reason", "Suspicious behavior detected"),
+                        'affected_players': [current_user.id],
+                        'message': 'AI referee has flagged this action for review'
+                    },
+                    target_players=[current_user.id]
+                )
+            
+            logger.info(f"Mafia action performed: {action_type} by {current_user.id}")
+        return {
+                **result,
+                "referee_check": referee_check.get("cheat_score", 0) if referee_check.get("success") else None
+            }
+        else:
+            raise ValidationException([
+                ErrorDetail(
+                    message=result.get("error", "Action failed"),
+                    code="MAFIA_ACTION_FAILED"
+                )
+            ])
+        
+    except Exception as e:
+        logger.error(f"Mafia action failed: {e}")
+        capture_exception(e)
+        raise StandardHTTPException(
+            status_code=500,
+            error="Mafia Action Failed",
+            message="An error occurred while performing the game action",
+            error_code=ErrorCodes.INTERNAL_SERVER_ERROR
+        )
+
+@app.get("/api/v1/games/mafia/{session_id}/state", response_model=Dict[str, Any])
+@rate_limit("games")
+async def get_mafia_game_state(
+    session_id: str,
+    current_user: AuthUser = Depends(get_current_user)
+):
+    """Get current Mafia game state"""
+    try:
+        # Load game state from Redis
+        game_state = await redis_manager.get(f"mafia_game:{session_id}", "games")
+        
+        if not game_state:
+            raise NotFoundException("Game session", session_id)
+        
+        # Check if user is in the game
+        if current_user.id not in game_state.get("players", {}):
+            raise AuthorizationException(
+                message="You are not a player in this game",
+                error_code=ErrorCodes.INSUFFICIENT_PERMISSIONS
+            )
+        
+        # Filter sensitive information (hide other players' roles if game is active)
+        filtered_state = await self._filter_game_state_for_player(game_state, current_user.id)
+        
+        return {
+            "success": True,
+            "game_state": filtered_state
+        }
+        
+    except Exception as e:
+        logger.error(f"Get Mafia game state failed: {e}")
+        capture_exception(e)
+        raise StandardHTTPException(
+            status_code=500,
+            error="Get Game State Failed",
+            message="An error occurred while retrieving game state",
+            error_code=ErrorCodes.INTERNAL_SERVER_ERROR
+        )
+
+@app.get("/api/v1/games/mafia/active", response_model=Dict[str, Any])
+@rate_limit("games")
+async def get_active_mafia_games(
+    family_group_id: Optional[str] = None,
+    current_user: AuthUser = Depends(get_current_user)
+):
+    """Get list of active Mafia games"""
+    try:
+        # This would need to be implemented to scan Redis for active games
+        # For now, return placeholder
+            return {
+                "success": True,
+            "active_games": [],
+            "message": "Active games endpoint - to be fully implemented"
+            }
+            
+    except Exception as e:
+        logger.error(f"Get active Mafia games failed: {e}")
+        capture_exception(e)
+        raise StandardHTTPException(
+            status_code=500,
+            error="Get Active Games Failed",
+            message="An error occurred while retrieving active games",
+            error_code=ErrorCodes.INTERNAL_SERVER_ERROR
+        )
+
+async def _filter_game_state_for_player(self, game_state: Dict[str, Any], player_id: str) -> Dict[str, Any]:
+    """Filter game state to hide sensitive information from player"""
+    
+    filtered_state = game_state.copy()
+    
+    # If game is not over, hide other players' roles
+    if game_state.get("phase") != "game_over":
+        players = filtered_state.get("players", {})
+        for pid, player_data in players.items():
+            if pid != player_id:
+                # Hide role information
+                if "role" in player_data:
+                    player_data["role"] = "hidden"
+    
+    return filtered_state
 
 # Production monitoring endpoints
 @app.get("/api/v1/production/status")
@@ -1267,6 +1947,286 @@ async def get_production_status():
             message="Unable to retrieve production status",
             error_code=ErrorCodes.INTERNAL_SERVER_ERROR
         )
+
+# ============================================================================
+# WEBSOCKET ENDPOINTS
+# ============================================================================
+
+@app.websocket("/ws/{user_id}")
+async def websocket_endpoint(websocket: WebSocket, user_id: str, family_id: str):
+    """Main WebSocket endpoint for real-time communication"""
+    websocket_manager = get_websocket_manager()
+    connection_id = None
+    
+    try:
+        # Connect user
+        connection_id = await websocket_manager.connect_user(
+            websocket=websocket,
+            user_id=user_id,
+            family_id=family_id,
+            metadata={'endpoint': 'main', 'connected_at': datetime.now().isoformat()}
+        )
+        
+        logger.info(f"WebSocket connected: user={user_id}, family={family_id}, connection={connection_id}")
+        
+        # Listen for messages
+        while True:
+            try:
+                # Receive message from client
+                message_data = await websocket.receive_text()
+                
+                # Handle incoming message
+                await websocket_manager.handle_incoming_message(connection_id, message_data)
+                
+            except WebSocketDisconnect:
+                logger.info(f"WebSocket disconnected: {connection_id}")
+                break
+            except Exception as e:
+                logger.error(f"WebSocket message error: {e}")
+                # Send error back to client
+                error_message = WebSocketMessage(
+                    type=MessageType.ERROR,
+                    data={'error': str(e), 'error_type': 'message_handling_error'}
+                )
+                await websocket_manager.send_to_connection(connection_id, error_message)
+        
+    except Exception as e:
+        logger.error(f"WebSocket connection error: {e}")
+        capture_exception(e)
+    
+    finally:
+        # Ensure cleanup
+        if connection_id:
+            await websocket_manager.disconnect_user(connection_id)
+
+@app.websocket("/ws/game/{session_id}")
+async def game_websocket_endpoint(websocket: WebSocket, session_id: str, user_id: str):
+    """Game-specific WebSocket endpoint for real-time gaming"""
+    websocket_manager = get_websocket_manager()
+    connection_id = None
+    
+    try:
+        # Verify game session exists and user has access
+        game_manager = get_game_state_manager()
+        # TODO: Add proper game session validation
+        
+        # For now, assume family_id from session (would be retrieved from database)
+        family_id = "default"  # This should be retrieved from the game session
+        
+        # Connect user
+        connection_id = await websocket_manager.connect_user(
+            websocket=websocket,
+            user_id=user_id,
+            family_id=family_id,
+            metadata={
+                'endpoint': 'game',
+                'session_id': session_id,
+                'connected_at': datetime.now().isoformat()
+            }
+        )
+        
+        # Subscribe to game updates
+        await websocket_manager.subscribe_to_game(connection_id, session_id)
+        
+        logger.info(f"Game WebSocket connected: user={user_id}, session={session_id}, connection={connection_id}")
+        
+        # Send welcome message with game state
+        welcome_message = WebSocketMessage(
+            type=MessageType.GAME_JOINED,
+            data={
+                'session_id': session_id,
+                'user_id': user_id,
+                'connection_id': connection_id,
+                'message': 'Connected to game session'
+            }
+        )
+        await websocket_manager.send_to_connection(connection_id, welcome_message)
+        
+        # Listen for game messages
+        while True:
+            try:
+                message_data = await websocket.receive_text()
+                
+                # Handle game-specific messages
+                await websocket_manager.handle_incoming_message(connection_id, message_data)
+                
+            except WebSocketDisconnect:
+                logger.info(f"Game WebSocket disconnected: {connection_id}")
+                break
+            except Exception as e:
+                logger.error(f"Game WebSocket message error: {e}")
+                error_message = WebSocketMessage(
+                    type=MessageType.ERROR,
+                    data={'error': str(e), 'session_id': session_id}
+                )
+                await websocket_manager.send_to_connection(connection_id, error_message)
+        
+    except Exception as e:
+        logger.error(f"Game WebSocket connection error: {e}")
+        capture_exception(e)
+    
+    finally:
+        if connection_id:
+            # Unsubscribe from game
+            await websocket_manager.unsubscribe_from_game(connection_id, session_id)
+            
+            # Notify other players
+            await websocket_manager.notify_game_state_change(
+                session_id=session_id,
+                event_type=MessageType.PLAYER_LEFT,
+                data={'user_id': user_id, 'reason': 'disconnected'}
+            )
+            
+            # Disconnect user
+            await websocket_manager.disconnect_user(connection_id)
+
+@app.get("/api/v1/websocket/stats")
+@rate_limit("api")
+async def websocket_stats():
+    """Get WebSocket connection statistics"""
+    try:
+        websocket_manager = get_websocket_manager()
+        stats = websocket_manager.get_stats()
+        
+            return {
+            "success": True,
+            "stats": stats,
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        logger.error(f"WebSocket stats failed: {e}")
+        capture_exception(e)
+        raise StandardHTTPException(
+            status_code=500,
+            error="WebSocket Stats Failed",
+            message="Unable to retrieve WebSocket statistics",
+            error_code=ErrorCodes.INTERNAL_SERVER_ERROR
+        )
+
+@app.get("/api/v1/games/synchronization/stats")
+@rate_limit("api")
+async def game_synchronization_stats():
+    """Get game state synchronization statistics"""
+    try:
+        game_synchronizer = get_game_synchronizer()
+        stats = await game_synchronizer.get_synchronization_stats()
+        
+        return {
+            "success": True,
+            "synchronization_stats": stats,
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        logger.error(f"Game synchronization stats failed: {e}")
+        capture_exception(e)
+        raise StandardHTTPException(
+            status_code=500,
+            error="Game Synchronization Stats Failed",
+            message="Unable to retrieve game synchronization statistics",
+            error_code=ErrorCodes.INTERNAL_SERVER_ERROR
+        )
+
+@app.post("/api/v1/games/{session_id}/synchronization/force")
+@rate_limit("games")
+async def force_game_synchronization(
+    session_id: str,
+    current_user: AuthUser = Depends(get_current_user)
+):
+    """Force immediate synchronization for a game session"""
+    try:
+        game_synchronizer = get_game_synchronizer()
+        success = await game_synchronizer.force_synchronization(session_id)
+        
+        if success:
+            return {
+                "success": True,
+                "session_id": session_id,
+                "message": "Game synchronization forced successfully"
+            }
+        else:
+            raise StandardHTTPException(
+                status_code=500,
+                error="Synchronization Failed",
+                message="Unable to force game synchronization",
+                error_code=ErrorCodes.INTERNAL_SERVER_ERROR
+            )
+    except Exception as e:
+        logger.error(f"Force game synchronization failed: {e}")
+        capture_exception(e)
+        raise StandardHTTPException(
+            status_code=500,
+            error="Force Synchronization Failed",
+            message="An error occurred while forcing game synchronization",
+            error_code=ErrorCodes.INTERNAL_SERVER_ERROR
+        )
+
+@app.get("/api/v1/games/{session_id}/deltas")
+@rate_limit("games")
+async def get_game_deltas(
+    session_id: str,
+    since_timestamp: Optional[str] = None,
+    max_count: int = 50,
+    current_user: AuthUser = Depends(get_current_user)
+):
+    """Get game state change deltas for debugging/monitoring"""
+    try:
+        game_synchronizer = get_game_synchronizer()
+        
+        since_dt = None
+        if since_timestamp:
+            try:
+                since_dt = datetime.fromisoformat(since_timestamp)
+            except ValueError:
+                raise ValidationException([
+                    ErrorDetail(
+                        message="Invalid timestamp format. Use ISO format (YYYY-MM-DDTHH:MM:SS)",
+                        code="INVALID_TIMESTAMP_FORMAT"
+                    )
+                ])
+        
+        deltas = await game_synchronizer.get_game_deltas(
+            session_id=session_id,
+            since_timestamp=since_dt,
+            max_count=min(max_count, 100)  # Cap at 100 for performance
+        )
+        
+        # Convert deltas to serializable format
+        delta_list = []
+        for delta in deltas:
+            delta_list.append({
+                "session_id": delta.session_id,
+                "operation_type": delta.operation_type.value,
+                "field_path": delta.field_path,
+                "old_value": delta.old_value,
+                "new_value": delta.new_value,
+                "timestamp": delta.timestamp.isoformat(),
+                "server_id": delta.server_id,
+                "player_id": delta.player_id,
+                "sequence_number": delta.sequence_number,
+                "checksum": delta.checksum
+            })
+        
+        return {
+            "success": True,
+            "session_id": session_id,
+            "deltas": delta_list,
+            "count": len(delta_list),
+            "since_timestamp": since_timestamp,
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        logger.error(f"Get game deltas failed: {e}")
+        capture_exception(e)
+        raise StandardHTTPException(
+            status_code=500,
+            error="Get Game Deltas Failed",
+            message="Unable to retrieve game state deltas",
+            error_code=ErrorCodes.INTERNAL_SERVER_ERROR
+        )
+
+# ============================================================================
+# ERROR HANDLING
+# ============================================================================
 
 # Error handling middleware
 @app.exception_handler(StandardHTTPException)
@@ -1329,12 +2289,48 @@ async def startup_event():
     logger.info(f"Environment: {os.getenv('ENVIRONMENT', 'development')}")
     logger.info(f"Database URL configured: {'DATABASE_URL' in os.environ}")
     logger.info(f"Production secrets valid: {validate_production_secrets()}")
+    
+    # Initialize game state synchronizer
+    try:
+        game_synchronizer = get_game_synchronizer()
+        await game_synchronizer.startup()
+        logger.info("Game state synchronizer initialized successfully")
+    except Exception as e:
+        logger.error(f"Failed to initialize game state synchronizer: {e}")
+        # Don't fail startup, just log the error
+    
+    # Initialize WebSocket manager
+    try:
+        websocket_manager = get_websocket_manager()
+        await websocket_manager.startup()
+        logger.info("WebSocket manager initialized successfully")
+    except Exception as e:
+        logger.error(f"Failed to initialize WebSocket manager: {e}")
+        # Don't fail startup, just log the error
 
 # Shutdown event
 @app.on_event("shutdown")
 async def shutdown_event():
     """Application shutdown"""
     logger.info("Elmowafiplatform Unified API shutting down")
+    
+    # Shutdown WebSocket manager
+    try:
+        websocket_manager = get_websocket_manager()
+        await websocket_manager.shutdown()
+        logger.info("WebSocket manager shut down successfully")
+    except Exception as e:
+        logger.error(f"Error shutting down WebSocket manager: {e}")
+    
+    # Shutdown game state synchronizer
+    try:
+        game_synchronizer = get_game_synchronizer()
+        await game_synchronizer.shutdown()
+        logger.info("Game state synchronizer shut down successfully")
+    except Exception as e:
+        logger.error(f"Error shutting down game state synchronizer: {e}")
+    
+    await graceful_shutdown()
 
 if __name__ == "__main__":
     import uvicorn

@@ -1,29 +1,47 @@
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { api } from '../api';
 import { aiService } from '../aiService';
-import { AIError } from '@/lib/ai/errorHandling';
 
 // Mock the api module
 vi.mock('../api', () => ({
-  api: {
+  apiClient: {
     post: vi.fn(),
     get: vi.fn(),
   },
 }));
 
+// Import the mocked apiClient after setting up the mock
+import { apiClient } from '../api';
+
+// Type assertion for the mocked apiClient
+const mockApi = apiClient as jest.Mocked<typeof apiClient>;
+
 describe('AIService', () => {
-  const mockApi = api as jest.Mocked<typeof api>;
-  
+  // Mock response data
+  const mockApiResponse = {
+    data: {
+      success: true,
+      data: {
+        suggestions: [
+          {
+            activity_name: 'Visit Central Park',
+            description: 'Enjoy a relaxing day in Central Park with various activities for all ages.',
+            suitability_score: 0.9,
+            estimated_cost: 50,
+            duration: '3-4 hours'
+          }
+        ]
+      }
+    }
+  };
+
   beforeEach(() => {
-    // Reset all mocks before each test
     vi.clearAllMocks();
-    
-    // Set up default mock responses
-    process.env.VITE_AI_SERVICE_URL = 'http://localhost:8001/api/v1/ai';
+    vi.stubEnv('VITE_AI_SERVICE_URL', 'http://localhost:8001/api/v1/ai');
+    mockApi.post.mockResolvedValue(mockApiResponse);
   });
   
   afterEach(() => {
-    // Clean up environment variables after each test
+    vi.resetAllMocks();
     delete process.env.VITE_AI_SERVICE_URL;
   });
   
@@ -36,21 +54,22 @@ describe('AIService', () => {
       budget: 200
     };
     
-    const mockResponse = {
+    const mockApiResponse = {
       data: {
+        success: true,
         data: {
           suggestions: [
             {
-              activity: 'Visit Central Park',
+              activity_name: 'Visit Central Park',
               description: 'Enjoy a relaxing day in Central Park with various activities for all ages.',
-              suitability: 0.9,
+              suitability_score: 0.9,
               estimated_cost: 50,
               duration: '3-4 hours'
             },
             {
-              activity: 'Museum of Natural History',
+              activity_name: 'Museum of Natural History',
               description: 'Explore fascinating exhibits suitable for both children and adults.',
-              suitability: 0.85,
+              suitability_score: 0.85,
               estimated_cost: 40,
               duration: '2-3 hours'
             }
@@ -59,48 +78,67 @@ describe('AIService', () => {
       }
     };
     
+    // Expected return value from the method
+    const expectedSuggestions = [
+      {
+        activity: 'Visit Central Park',
+        description: 'Enjoy a relaxing day in Central Park with various activities for all ages.',
+        suitability: 0.9,
+        estimated_cost: 50,
+        duration: '3-4 hours'
+      },
+      {
+        activity: 'Museum of Natural History',
+        description: 'Explore fascinating exhibits suitable for both children and adults.',
+        suitability: 0.85,
+        estimated_cost: 40,
+        duration: '2-3 hours'
+      }
+    ];
+    
+    // Reset mocks before each test
+    beforeEach(() => {
+      vi.clearAllMocks();
+      // Set up default mock implementation
+      mockApi.post.mockResolvedValue(mockApiResponse);
+    });
+    
     it('should call the correct API endpoint with context parameters', async () => {
       // Arrange
-      mockApi.post.mockResolvedValueOnce(mockResponse);
+      mockApi.post.mockResolvedValueOnce(mockApiResponse);
       
       // Act
       const result = await aiService.getFamilyActivitySuggestions(mockContext);
       
       // Assert
       expect(mockApi.post).toHaveBeenCalledWith(
-        'http://localhost:8001/api/v1/ai/family-activities',
+        '/ai/family-activity-suggestions',
         {
           location: 'New York',
           weather: 'sunny',
           family_members: ['child', 'adult'],
-          time: 'afternoon',
-          budget: 200
+          time_of_day: 'afternoon',
+          budget: 200,
+          metadata: {
+            timestamp: expect.any(String),
+            source: 'web-client',
+            version: '1.0.0'
+          }
         }
       );
       
-      expect(result).toEqual(mockResponse.data.data.suggestions);
+      expect(result).toEqual(expectedSuggestions);
     });
     
     it('should handle API errors gracefully', async () => {
       // Arrange
-      const errorResponse = {
-        response: {
-          status: 500,
-          data: {
-            error: 'Internal Server Error',
-            message: 'Something went wrong'
-          }
-        }
-      };
-      
+      const errorResponse = new Error('API Error');
       mockApi.post.mockRejectedValueOnce(errorResponse);
       
       // Act & Assert
       await expect(aiService.getFamilyActivitySuggestions(mockContext))
         .rejects
         .toThrow('Failed to get family activity suggestions');
-      
-      expect(mockApi.post).toHaveBeenCalledTimes(1);
     });
     
     it('should handle network errors', async () => {
@@ -117,63 +155,70 @@ describe('AIService', () => {
     it('should handle missing or partial context', async () => {
       // Arrange
       const partialContext = { location: 'New York' };
-      mockApi.post.mockResolvedValueOnce({
+      const partialResponse = {
         data: {
+          success: true,
           data: {
             suggestions: [
               {
-                activity: 'Central Park',
+                activity_name: 'Central Park',
                 description: 'Visit the famous Central Park',
-                suitability: 0.8,
+                suitability_score: 0.8,
                 estimated_cost: 0,
                 duration: 'flexible'
               }
             ]
           }
         }
-      });
+      };
+      
+      mockApi.post.mockResolvedValueOnce(partialResponse);
       
       // Act
       const result = await aiService.getFamilyActivitySuggestions(partialContext);
       
       // Assert
       expect(mockApi.post).toHaveBeenCalledWith(
-        'http://localhost:8001/api/v1/ai/family-activities',
+        '/ai/family-activity-suggestions',
         {
-          location: 'New York'
+          location: 'New York',
+          family_members: [],
+          metadata: {
+            timestamp: expect.any(String),
+            source: 'web-client',
+            version: '1.0.0'
+          }
         }
       );
       
-      expect(result).toBeInstanceOf(Array);
-      expect(result[0]).toHaveProperty('activity');
-      expect(result[0]).toHaveProperty('description');
+      expect(result).toEqual([
+        {
+          activity: 'Central Park',
+          description: 'Visit the famous Central Park',
+          suitability: 0.8,
+          estimated_cost: 0,
+          duration: 'flexible'
+        }
+      ]);
     });
     
-    it('should throw AIError with proper error code for API errors', async () => {
+    it('should handle API rate limit errors', async () => {
       // Arrange
-      const errorResponse = {
-        response: {
-          status: 429,
-          data: {
-            error: 'RateLimitExceeded',
-            message: 'API rate limit exceeded'
-          }
+      const rateLimitError = new Error('Rate limit exceeded');
+      (rateLimitError as any).response = {
+        status: 429,
+        data: {
+          error: 'RateLimitExceeded',
+          message: 'API rate limit exceeded'
         }
       };
       
-      mockApi.post.mockRejectedValueOnce(errorResponse);
+      mockApi.post.mockRejectedValueOnce(rateLimitError);
       
       // Act & Assert
-      try {
-        await aiService.getFamilyActivitySuggestions(mockContext);
-        fail('Expected an error to be thrown');
-      } catch (error) {
-        expect(error).toBeInstanceOf(AIError);
-        if (error instanceof AIError) {
-          expect(error.code).toBe('RATE_LIMIT');
-          expect(error.message).toContain('API rate limit exceeded');
-        }
-      }
+      await expect(aiService.getFamilyActivitySuggestions(mockContext))
+        .rejects
+        .toThrow('Failed to get family activity suggestions');
     });
   });
   

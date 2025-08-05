@@ -296,21 +296,20 @@ class AIService {
       // Handle the response structure
       if (response?.data?.success && Array.isArray(response.data.data?.suggestions)) {
         return response.data.data.suggestions.map((suggestion: any) => ({
-          activity: suggestion.activity_name || 'Unnamed Activity',
+          activity: suggestion.activity_name || suggestion.activity || 'Unnamed Activity',
           description: suggestion.description || 'No description available',
-          suitability: suggestion.suitability_score || 0,
+          suitability: suggestion.suitability_score || suggestion.suitability || 0,
           estimated_cost: suggestion.estimated_cost || 0,
           duration: suggestion.duration || '1-2 hours'
         }));
       }
 
-      // Log unexpected response structure for debugging
-      console.warn('Unexpected response format from AI service:', response);
-      return [];
+      // If we get here, the response didn't match our expected format
+      throw new Error('Invalid response format from AI service');
     } catch (error) {
       console.error('Error fetching family activity suggestions:', error);
-      // Return a friendly error message or default suggestions
-      return [];
+      // Re-throw the error to be handled by the caller
+      throw new Error('Failed to get family activity suggestions');
     }
   }
 }

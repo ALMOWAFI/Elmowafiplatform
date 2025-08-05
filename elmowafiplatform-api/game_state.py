@@ -21,6 +21,7 @@ from performance_monitoring import performance_monitor
 from rate_limiting import rate_limit
 from circuit_breakers import circuit_breaker
 from websocket_redis_manager import get_websocket_manager
+from game_state_synchronization import get_game_synchronizer, GameStateType
 
 logger = get_logger("game_state")
 
@@ -55,6 +56,7 @@ class GameStateManager:
     def __init__(self):
         self.db = get_unified_database()
         self.websocket_manager = get_websocket_manager()
+        self.synchronizer = get_game_synchronizer()
         
         # Game configuration
         self.max_players = int(os.getenv('MAX_GAME_PLAYERS', 8))
