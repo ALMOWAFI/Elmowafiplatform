@@ -71,3 +71,5 @@ yarn-error.log*
 # Production
 .cache
 .vercel_build_output
+
+.vercel

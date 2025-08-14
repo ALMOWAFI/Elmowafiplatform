@@ -1,0 +1,15 @@
+[build]
+builder = "NIXPACKS"
+
+[deploy]
+healthcheckPath = "/"
+healthcheckTimeout = 30
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3
+
+[environments.production]
+[environments.production.variables]
+NODE_ENV = "production"
+VITE_API_URL = "https://elmowafiplatform-production.up.railway.app"
+VITE_AI_SERVICE_URL = "https://elmowafiplatform-production.up.railway.app"
+PORT = 3000

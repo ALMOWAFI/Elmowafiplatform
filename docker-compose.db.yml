@@ -1,0 +1,49 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: elmowafy-postgres
+    environment:
+      POSTGRES_DB: elmowafy
+      POSTGRES_USER: elmowafy
+      POSTGRES_PASSWORD: your_secure_password_here
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d
+    networks:
+      - elmowafy-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U elmowafy -d elmowafy"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: elmowafy-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - elmowafy-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # pgadmin service removed for now - can be added later if needed
+
+networks:
+  elmowafy-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:

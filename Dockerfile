@@ -30,5 +30,5 @@ EXPOSE $PORT
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
     CMD curl -f http://localhost:$PORT/api/v1/health || exit 1
 
-# Start the unified server
-CMD ["python", "simple_main.py"]
+# Start the Supabase-integrated server
+CMD ["python", "supabase_main.py"]

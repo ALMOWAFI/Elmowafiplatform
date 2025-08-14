@@ -1,0 +1,79 @@
+# Multi-stage Dockerfile for Complete Elmowafiplatform
+FROM python:3.11-slim AS backend
+
+# Set environment variables
+ENV PYTHONPATH=/app
+ENV PYTHONUNBUFFERED=1
+ENV PORT=8001
+ENV AI_SERVICE_PORT=5000
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    gcc \
+    g++ \
+    libpq-dev \
+    curl \
+    sqlite3 \
+    pkg-config \
+    supervisor \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create application directory
+WORKDIR /app
+
+# Copy backend requirements
+COPY backend/requirements.txt ./backend/
+COPY core/ai-services/hack2/requirements.txt ./ai-services/
+
+# Install Python dependencies
+RUN pip install --no-cache-dir -r backend/requirements.txt
+RUN pip install --no-cache-dir -r ai-services/requirements.txt || echo "AI requirements optional"
+
+# Copy application code
+COPY backend/ ./backend/
+COPY core/ai-services/hack2/ ./ai-services/
+COPY main.py .
+COPY start.py .
+
+# Create necessary directories
+RUN mkdir -p /app/uploads && \
+    mkdir -p /app/data && \
+    mkdir -p /app/logs && \
+    mkdir -p /app/ai-services/uploads
+
+# Set proper permissions
+RUN chmod +x /app && \
+    chmod -R 755 /app/uploads && \
+    chmod -R 755 /app/data && \
+    chmod -R 755 /app/ai-services
+
+# Create supervisor configuration
+RUN echo '[supervisord]' > /etc/supervisor/conf.d/supervisord.conf && \
+    echo 'nodaemon=true' >> /etc/supervisor/conf.d/supervisord.conf && \
+    echo 'user=root' >> /etc/supervisor/conf.d/supervisord.conf && \
+    echo '' >> /etc/supervisor/conf.d/supervisord.conf && \
+    echo '[program:backend]' >> /etc/supervisor/conf.d/supervisord.conf && \
+    echo 'command=python /app/backend/simple_main.py' >> /etc/supervisor/conf.d/supervisord.conf && \
+    echo 'directory=/app' >> /etc/supervisor/conf.d/supervisord.conf && \
+    echo 'autostart=true' >> /etc/supervisor/conf.d/supervisord.conf && \
+    echo 'autorestart=true' >> /etc/supervisor/conf.d/supervisord.conf && \
+    echo 'stderr_logfile=/app/logs/backend.err.log' >> /etc/supervisor/conf.d/supervisord.conf && \
+    echo 'stdout_logfile=/app/logs/backend.out.log' >> /etc/supervisor/conf.d/supervisord.conf && \
+    echo '' >> /etc/supervisor/conf.d/supervisord.conf && \
+    echo '[program:ai-service]' >> /etc/supervisor/conf.d/supervisord.conf && \
+    echo 'command=python /app/ai-services/app.py' >> /etc/supervisor/conf.d/supervisord.conf && \
+    echo 'directory=/app/ai-services' >> /etc/supervisor/conf.d/supervisord.conf && \
+    echo 'autostart=true' >> /etc/supervisor/conf.d/supervisord.conf && \
+    echo 'autorestart=true' >> /etc/supervisor/conf.d/supervisord.conf && \
+    echo 'stderr_logfile=/app/logs/ai-service.err.log' >> /etc/supervisor/conf.d/supervisord.conf && \
+    echo 'stdout_logfile=/app/logs/ai-service.out.log' >> /etc/supervisor/conf.d/supervisord.conf
+
+# Expose ports
+EXPOSE 8001 5000
+
+# Health check for main backend
+HEALTHCHECK --interval=30s --timeout=30s --start-period=60s --retries=3 \
+    CMD curl -f http://localhost:8001/api/v1/health || exit 1
+
+# Start both services using supervisor
+CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]

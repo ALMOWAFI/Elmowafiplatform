@@ -1,0 +1,68 @@
+Directories to be deleted:
+- core/frontend/elmowafy-travels-oasis/ (generic template)
+- elmowafiplatform-api/ (older backend)
+- core/api/ (duplicate API)
+- kingraph/ (older family tree)
+- hack2/ (root - cleaned version in core/)
+- backups/ (backup files)
+- monitoring/ (generic infrastructure)
+- integrations/ (LMS remnants)
+
+Deletion started: Sat, Aug  9, 2025 12:55:12 AM
+Deletion completed: Sat, Aug  9, 2025 12:47:06 PM
+
+Remaining structure:
+total 985
+drwxr-xr-x 1 Aliel 197609      0 Aug  9 00:57 .
+drwxr-xr-x 1 Aliel 197609      0 Aug  5 21:35 ..
+drwxr-xr-x 1 Aliel 197609      0 Aug  8 19:30 .claude
+-rw-r--r-- 1 Aliel 197609   1001 Aug  8 19:18 .dockerignore
+-rw-r--r-- 1 Aliel 197609   1075 Aug  5 19:46 .env.production
+drwxr-xr-x 1 Aliel 197609      0 Aug  8 23:04 .git
+drwxr-xr-x 1 Aliel 197609      0 Jul 30 02:07 .github
+-rw-r--r-- 1 Aliel 197609   1577 Jul 30 01:53 .gitignore
+drwxr-xr-x 1 Aliel 197609      0 Aug  8 19:06 .mypy_cache
+drwxr-xr-x 1 Aliel 197609      0 Aug  6 21:48 .pytest_cache
+-rw-r--r-- 1 Aliel 197609    614 Aug  7 00:58 .railwayignore
+drwxr-xr-x 1 Aliel 197609      0 Aug  8 13:58 .trunk
+drwxr-xr-x 1 Aliel 197609      0 May  9 05:12 .vscode
+drwxr-xr-x 1 Aliel 197609      0 Aug  8 18:12 __pycache__
+-rwxr-xr-x 1 Aliel 197609  46586 Aug  4 21:36 ai_services.py
+-rwxr-xr-x 1 Aliel 197609   4254 Aug  4 21:36 auth.py
+drwxr-xr-x 1 Aliel 197609      0 Aug  8 18:50 backend
+-rw-r--r-- 1 Aliel 197609  14219 Aug  4 21:36 budget_bridge.py
+drwxr-xr-x 1 Aliel 197609      0 Jul 30 02:00 budget-system
+-rwxr-xr-x 1 Aliel 197609  18205 Aug  4 21:36 cache_middleware.py
+-rw-r--r-- 1 Aliel 197609  27035 Jul 23 10:31 CLAUDE.md
+drwxr-xr-x 1 Aliel 197609      0 Aug  9 00:56 core
+-rw-r--r-- 1 Aliel 197609  24841 Aug  4 21:36 data_manager.py
+-rwxr-xr-x 1 Aliel 197609  29405 Aug  4 21:36 database.py
+-rwxr-xr-x 1 Aliel 197609  13837 Aug  4 21:36 database_config.py
+-rwxr-xr-x 1 Aliel 197609  22422 Aug  4 13:36 database_migrations.py
+-rwxr-xr-x 1 Aliel 197609  25711 Aug  4 21:36 database_models.py
+-rw-r--r-- 1 Aliel 197609    446 Aug  9 12:47 deletion_log.txt
+-rw-r--r-- 1 Aliel 197609   8391 Aug  8 14:31 DEPLOYMENT_FINAL.md
+-rw-r--r-- 1 Aliel 197609   1055 Aug  6 14:04 docker-compose.db.yml
+-rw-r--r-- 1 Aliel 197609    388 Aug  8 19:24 docker-compose.frontend.yml
+-rw-r--r-- 1 Aliel 197609   5206 Jul 25 00:55 docker-compose.prod.yml
+-rw-r--r-- 1 Aliel 197609   1220 Aug  7 16:53 docker-compose.yml
+-rw-r--r-- 1 Aliel 197609   1163 Aug  8 18:42 Dockerfile
+drwxr-xr-x 1 Aliel 197609      0 Aug  8 19:26 elmowafy-travels-oasis
+-rwxr-xr-x 1 Aliel 197609  19348 Aug  4 21:36 facial_recognition_trainer.py
+-rw-r--r-- 1 Aliel 197609  94208 Aug  7 16:31 family_platform.db
+drwxr-xr-x 1 Aliel 197609      0 Aug  8 18:34 family-tree
+-rwxr-xr-x 1 Aliel 197609  30532 Aug  4 21:36 gps_verification.py
+-rw-r--r-- 1 Aliel 197609   1589 Aug  5 20:52 how --stat HEAD
+-rwxr-xr-x 1 Aliel 197609  24777 Aug  8 17:22 main.py
+drwxr-xr-x 1 Aliel 197609      0 Aug  8 18:37 node_modules
+-rw-r--r-- 1 Aliel 197609    175 Aug  8 18:37 package.json
+-rw-r--r-- 1 Aliel 197609 184367 Aug  8 18:37 package-lock.json
+-rw-r--r-- 1 Aliel 197609     50 Aug  7 00:56 Procfile
+-rw-r--r-- 1 Aliel 197609   1136 Aug  7 20:15 railway.toml
+-rw-r--r-- 1 Aliel 197609  12368 Jul 25 00:59 README.md
+-rw-r--r-- 1 Aliel 197609  12289 Aug  4 21:36 realtime.py
+-rw-r--r-- 1 Aliel 197609    450 Aug  8 19:04 requirements.txt
+-rw-r--r-- 1 Aliel 197609     14 Aug  4 21:24 runtime.txt
+-rw-r--r-- 1 Aliel 197609  14714 Aug  4 21:36 security.py
+-rw-r--r-- 1 Aliel 197609   1748 Jul 30 01:41 test_integration.js
+-rw-r--r-- 1 Aliel 197609  21881 Aug  4 13:36 unified_database_schema.sql

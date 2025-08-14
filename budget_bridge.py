@@ -14,14 +14,29 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 import google.generativeai as genai
 
+# Try to import OpenAI
+try:
+    import openai
+    OPENAI_AVAILABLE = True
+except ImportError:
+    OPENAI_AVAILABLE = False
+
 logger = logging.getLogger(__name__)
 
 class BudgetBridge:
     """Bridge between main platform and budget system"""
     
-    def __init__(self, database_url: str = None, gemini_model=None):
+    def __init__(self, database_url: str = None, gemini_model=None, openai_client=None):
         self.database_url = database_url or os.getenv('BUDGET_DATABASE_URL', 'postgresql://localhost:5432/budget_db')
         self.gemini_model = gemini_model
+        self.openai_client = openai_client
+        
+        # Initialize OpenAI client if not provided
+        if OPENAI_AVAILABLE and not self.openai_client and os.environ.get('OPENAI_API_KEY'):
+            try:
+                self.openai_client = openai.OpenAI(api_key=os.environ.get('OPENAI_API_KEY'))
+            except Exception as e:
+                logger.error(f"Failed to initialize OpenAI client: {e}")
         
     async def get_connection(self):
         """Get database connection to budget system"""
@@ -265,25 +280,58 @@ class BudgetBridge:
     async def _generate_budget_insights(self, budget_data: Dict) -> str:
         """Generate AI insights for budget data"""
         try:
-            if not self.gemini_model:
+            # Check if OpenAI is available first, then fall back to Gemini
+            if self.openai_client and OPENAI_AVAILABLE:
+                prompt = f"""
+                Analyze this family budget data and provide 2-3 practical insights:
+                
+                Total Budget: ${budget_data['total_budget']:.2f}
+                Spent: ${budget_data['total_spent']:.2f}
+                Remaining: ${budget_data['remaining']:.2f}
+                Budget Health: {budget_data['budget_health']}
+                
+                Top Categories:
+                {chr(10).join([f"- {cat['name']}: ${cat['spent']:.2f} spent of ${cat['budgeted']:.2f} budgeted" for cat in budget_data['categories'][:5]])}
+                
+                Provide brief, actionable insights for a family budget in 2-3 sentences.
+                """
+                
+                # Call OpenAI API
+                response = self.openai_client.chat.completions.create(
+                    model="gpt-3.5-turbo",
+                    messages=[
+                        {"role": "system", "content": "You are a helpful financial advisor providing concise budget insights."},
+                        {"role": "user", "content": prompt}
+                    ],
+                    temperature=0.7,
+                    max_tokens=150
+                )
+                
+                # Extract the response text
+                if response.choices and len(response.choices) > 0:
+                    return response.choices[0].message.content.strip()
+                else:
+                    return "Unable to generate insights at this time."
+                    
+            elif self.gemini_model:
+                prompt = f"""
+                Analyze this family budget data and provide 2-3 practical insights:
+                
+                Total Budget: ${budget_data['total_budget']:.2f}
+                Spent: ${budget_data['total_spent']:.2f}
+                Remaining: ${budget_data['remaining']:.2f}
+                Budget Health: {budget_data['budget_health']}
+                
+                Top Categories:
+                {chr(10).join([f"- {cat['name']}: ${cat['spent']:.2f} spent of ${cat['budgeted']:.2f} budgeted" for cat in budget_data['categories'][:5]])}
+                
+                Provide brief, actionable insights for a family budget in 2-3 sentences.
+                """
+                
+                response = self.gemini_model.generate_content(prompt)
+                return response.text.strip()
+            else:
                 return "AI insights unavailable"
-            
-            prompt = f"""
-            Analyze this family budget data and provide 2-3 practical insights:
-            
-            Total Budget: ${budget_data['total_budget']:.2f}
-            Spent: ${budget_data['total_spent']:.2f}
-            Remaining: ${budget_data['remaining']:.2f}
-            Budget Health: {budget_data['budget_health']}
-            
-            Top Categories:
-            {chr(10).join([f"- {cat['name']}: ${cat['spent']:.2f} spent of ${cat['budgeted']:.2f} budgeted" for cat in budget_data['categories'][:5]])}
-            
-            Provide brief, actionable insights for a family budget in 2-3 sentences.
-            """
-            
-            response = self.gemini_model.generate_content(prompt)
-            return response.text.strip()
             
         except Exception as e:
             logger.error(f"Error generating budget insights: {e}")
@@ -318,10 +366,10 @@ class BudgetBridge:
 # Global instance
 budget_bridge = None
 
-def initialize_budget_bridge(database_url: str = None, gemini_model=None):
+def initialize_budget_bridge(database_url: str = None, gemini_model=None, openai_client=None):
     """Initialize the budget bridge"""
     global budget_bridge
-    budget_bridge = BudgetBridge(database_url, gemini_model)
+    budget_bridge = BudgetBridge(database_url, gemini_model, openai_client)
     return budget_bridge
 
 def get_budget_bridge():

@@ -1,25 +1,60 @@
+#!/usr/bin/env python
+"""
+AI Services for Family Memory Platform
+
+This is the main Flask application for the family memory and travel platform.
+It provides AI-powered services for:
+- Family photo analysis and memory processing
+- Travel planning and recommendations
+- Cultural heritage preservation
+- Memory timeline generation
+
+The app integrates with the main React frontend to provide intelligent
+family-focused features.
+"""
+
 import os
+import json
 import cv2
 import numpy as np
 from flask import Flask, request, render_template, jsonify, send_from_directory
 from werkzeug.utils import secure_filename
-from math_analyzer.improved_error_localization import MathErrorDetector
+from datetime import datetime
+
+# Import our family-focused AI services
+from family_memory_processor import FamilyMemoryProcessor
+from family_travel_ai import FamilyTravelAI
 
 app = Flask(__name__)
 app.config['UPLOAD_FOLDER'] = 'uploads'
 app.config['RESULT_FOLDER'] = 'results'
+app.config['FAMILY_DATA_FOLDER'] = 'family_data'
 app.config['ALLOWED_EXTENSIONS'] = {'png', 'jpg', 'jpeg'}
 
 # Create folders if they don't exist
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 os.makedirs(app.config['RESULT_FOLDER'], exist_ok=True)
+os.makedirs(app.config['FAMILY_DATA_FOLDER'], exist_ok=True)
+
+# Initialize family AI services
+memory_processor = FamilyMemoryProcessor()
+travel_ai = FamilyTravelAI()
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in app.config['ALLOWED_EXTENSIONS']
 
 @app.route('/')
 def index():
-    return render_template('index.html')
+    return jsonify({
+        "service": "Family Memory & Travel AI Platform",
+        "version": "1.0.0",
+        "endpoints": [
+            "/api/memory/upload-photo",
+            "/api/memory/timeline",
+            "/api/travel/recommendations",
+            "/api/travel/itinerary"
+        ]
+    })
 
 @app.route('/uploads/<filename>')
 def uploaded_file(filename):
@@ -29,152 +64,189 @@ def uploaded_file(filename):
 def result_file(filename):
     return send_from_directory(app.config['RESULT_FOLDER'], filename)
 
-@app.route('/detect', methods=['POST'])
-def detect_errors():
+# === FAMILY MEMORY ENDPOINTS ===
+
+@app.route('/api/memory/upload-photo', methods=['POST'])
+def upload_family_photo():
+    """Upload and process a family photo for memory analysis."""
     if 'file' not in request.files:
-        return jsonify({'error': 'No file part'})
+        return jsonify({'error': 'No file part'}), 400
     
     file = request.files['file']
     if file.filename == '':
-        return jsonify({'error': 'No selected file'})
+        return jsonify({'error': 'No selected file'}), 400
     
     if not file or not allowed_file(file.filename):
-        return jsonify({'error': 'Invalid file type'})
+        return jsonify({'error': 'Invalid file type. Please upload JPG, JPEG, or PNG.'}), 400
     
-    # Save uploaded file
-    filename = secure_filename(file.filename)
-    file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-    file.save(file_path)
-    
-    # Get student work and correct solution from form
-    student_work = request.form.get('student_work', '')
-    correct_solution = request.form.get('correct_solution', '')
-    
-    # Read image
-    image = cv2.imread(file_path)
-    if image is None:
-        return jsonify({'error': 'Could not read image'})
-    
-    # Process the image
     try:
-        # Create error detector
-        detector = MathErrorDetector()
+        # Save uploaded file
+        filename = secure_filename(file.filename)
+        file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+        file.save(file_path)
         
-        # Detect errors
-        result = detector.detect_errors(student_work, correct_solution, image)
+        # Get optional metadata from request
+        metadata = {}
+        if request.form.get('date'):
+            metadata['date'] = request.form.get('date')
+        if request.form.get('location'):
+            metadata['location'] = request.form.get('location')
+        if request.form.get('family_members'):
+            metadata['family_members'] = request.form.get('family_members').split(',')
         
-        # Save the marked image
-        result_filename = f"{os.path.splitext(filename)[0]}_marked.jpg"
-        result_path = os.path.join(app.config['RESULT_FOLDER'], result_filename)
-        
-        if result.marked_image is not None:
-            cv2.imwrite(result_path, result.marked_image)
-        
-        # Format errors for display
-        errors = []
-        for error in result.errors:
-            errors.append({
-                'line_number': error.line_number,
-                'error_text': error.error_text,
-                'error_type': error.error_type,
-                'correction': error.correction,
-                'explanation': error.explanation,
-                'position': {
-                    'top_left_x': error.top_left_x,
-                    'top_left_y': error.top_left_y,
-                    'bottom_right_x': error.bottom_right_x,
-                    'bottom_right_y': error.bottom_right_y
-                }
-            })
-        
-        # Generate feedback
-        socratic_feedback = generate_feedback(student_work, result.errors, "socratic")
-        direct_feedback = generate_feedback(student_work, result.errors, "direct")
+        # Process the family photo
+        analysis_result = memory_processor.process_family_photo(file_path, metadata)
         
         return jsonify({
             'success': True,
-            'original_image': f"/uploads/{filename}",
-            'marked_image': f"/results/{result_filename}",
-            'errors': errors,
-            'error_count': len(errors),
-            'socratic_feedback': socratic_feedback,
-            'direct_feedback': direct_feedback
+            'message': 'Family photo processed successfully',
+            'analysis': analysis_result,
+            'image_url': f"/uploads/{filename}"
         })
         
     except Exception as e:
-        import traceback
-        print(traceback.format_exc())
-        return jsonify({'error': f'Error processing image: {str(e)}'})
+        return jsonify({'error': f'Error processing family photo: {str(e)}'}), 500
 
-def generate_feedback(student_work, errors, style="direct"):
-    """Generate pedagogical feedback based on detected errors"""
-    if not errors:
-        return "Great job! All your answers are correct."
-    
-    lines = student_work.strip().split('\n')
-    
-    # Group errors by line
-    errors_by_line = {}
-    for error in errors:
-        line_idx = error.line_number - 1  # Convert to 0-indexed
-        if 0 <= line_idx < len(lines):
-            if line_idx not in errors_by_line:
-                errors_by_line[line_idx] = []
-            errors_by_line[line_idx].append(error)
-    
-    feedback = []
-    
-    # Generate feedback for each line with errors
-    for line_idx, line_errors in sorted(errors_by_line.items()):
-        line = lines[line_idx]
+@app.route('/api/memory/timeline', methods=['GET'])
+def get_family_timeline():
+    """Get the family memory timeline."""
+    try:
+        # Get photos from uploads directory and create timeline
+        photos_dir = app.config['UPLOAD_FOLDER']
+        timeline = memory_processor.create_family_timeline(photos_dir)
         
-        if style == "socratic":
-            # Socratic style uses questions to guide the student
-            feedback.append(f"Question {line_idx + 1}: {line}")
-            
-            for error in line_errors:
-                if "arithmetic" in error.error_type.lower():
-                    feedback.append(f"• I see you wrote {error.error_text}. Can you double-check your calculation?")
-                elif "sign" in error.error_type.lower():
-                    feedback.append(f"• What happens to the sign when you move a term across the equals sign?")
-                elif "exponent" in error.error_type.lower():
-                    feedback.append(f"• Look at how you're handling the exponents in {error.error_text}. What's the rule for exponents when multiplying with the same base?")
-                elif "distribution" in error.error_type.lower():
-                    feedback.append(f"• When distributing in {error.error_text}, what do you need to do to each term inside the parentheses?")
-                elif "factoring" in error.error_type.lower():
-                    feedback.append(f"• What factors should you look for when factoring {error.error_text}?")
-                else:
-                    feedback.append(f"• Take another look at {error.error_text}. What might be wrong here?")
-                
-            feedback.append("What approach might work better here?")
-            
-        else:  # Direct instruction style
-            # Direct style provides explicit corrections
-            feedback.append(f"Problem {line_idx + 1}: {line}")
-            
-            for error in line_errors:
-                if "arithmetic" in error.error_type.lower():
-                    feedback.append(f"• There's a calculation error with {error.error_text}. The correct value is {error.correction}.")
-                elif "sign" in error.error_type.lower():
-                    feedback.append(f"• When moving terms across the equals sign, you need to change the sign. {error.error_text} should be {error.correction}.")
-                elif "exponent" in error.error_type.lower():
-                    feedback.append(f"• {error.explanation} The correct expression is {error.correction}.")
-                elif "distribution" in error.error_type.lower():
-                    feedback.append(f"• {error.explanation} The correct distribution is {error.correction}.")
-                elif "factoring" in error.error_type.lower():
-                    feedback.append(f"• The factoring in {error.error_text} is incorrect. {error.explanation} The correct factorization is {error.correction}.")
-                else:
-                    feedback.append(f"• {error.explanation} The correct form is {error.correction}.")
-                    
-        feedback.append("")  # Add a blank line between problems
-    
-    # Add overall recommendation
-    if style == "socratic":
-        feedback.append("What patterns do you notice in these errors? How might you avoid similar mistakes in the future?")
-    else:
-        feedback.append("Remember to carefully check your calculations and apply mathematical rules correctly.")
-    
-    return "\n".join(feedback)
+        return jsonify({
+            'success': True,
+            'timeline': timeline,
+            'total_memories': len(timeline)
+        })
+        
+    except Exception as e:
+        return jsonify({'error': f'Error creating timeline: {str(e)}'}), 500
+
+@app.route('/api/memory/suggestions', methods=['GET'])
+def get_memory_suggestions():
+    """Get smart memory suggestions ('On this day', similar memories)."""
+    try:
+        date = request.args.get('date')
+        family_member = request.args.get('family_member')
+        
+        suggestions = memory_processor.get_memory_suggestions(date, family_member)
+        
+        return jsonify({
+            'success': True,
+            'suggestions': suggestions
+        })
+        
+    except Exception as e:
+        return jsonify({'error': f'Error getting suggestions: {str(e)}'}), 500
+
+# === FAMILY TRAVEL ENDPOINTS ===
+
+@app.route('/api/travel/recommendations', methods=['POST'])
+def get_travel_recommendations():
+    """Get personalized travel recommendations for the family."""
+    try:
+        data = request.get_json()
+        
+        travel_dates = data.get('travel_dates')
+        budget = data.get('budget')
+        family_size = data.get('family_size', 4)
+        
+        recommendations = travel_ai.get_destination_recommendations(
+            travel_dates=travel_dates,
+            budget=budget,
+            family_size=family_size
+        )
+        
+        return jsonify({
+            'success': True,
+            'recommendations': recommendations
+        })
+        
+    except Exception as e:
+        return jsonify({'error': f'Error getting recommendations: {str(e)}'}), 500
+
+@app.route('/api/travel/itinerary', methods=['POST'])
+def create_family_itinerary():
+    """Create a detailed family itinerary for a destination."""
+    try:
+        data = request.get_json()
+        
+        destination = data.get('destination')
+        duration_days = data.get('duration_days', 5)
+        family_members = data.get('family_members', [])
+        
+        if not destination:
+            return jsonify({'error': 'Destination is required'}), 400
+        
+        itinerary = travel_ai.plan_family_itinerary(
+            destination=destination,
+            duration_days=duration_days,
+            family_members=family_members
+        )
+        
+        return jsonify({
+            'success': True,
+            'itinerary': itinerary
+        })
+        
+    except Exception as e:
+        return jsonify({'error': f'Error creating itinerary: {str(e)}'}), 500
+
+@app.route('/api/travel/cultural-insights/<destination>', methods=['GET'])
+def get_cultural_insights(destination):
+    """Get cultural insights and tips for family travel to destination."""
+    try:
+        insights = travel_ai.get_cultural_insights(destination)
+        
+        return jsonify({
+            'success': True,
+            'insights': insights
+        })
+        
+    except Exception as e:
+        return jsonify({'error': f'Error getting cultural insights: {str(e)}'}), 500
+
+@app.route('/api/travel/patterns', methods=['GET'])
+def analyze_travel_patterns():
+    """Analyze family travel patterns for better recommendations."""
+    try:
+        analysis = travel_ai.analyze_family_travel_patterns()
+        
+        return jsonify({
+            'success': True,
+            'analysis': analysis
+        })
+        
+    except Exception as e:
+        return jsonify({'error': f'Error analyzing travel patterns: {str(e)}'}), 500
+
+# === UTILITY ENDPOINTS ===
+
+@app.route('/api/health', methods=['GET'])
+def health_check():
+    """Health check endpoint."""
+    return jsonify({
+        'status': 'healthy',
+        'service': 'Family Memory & Travel AI',
+        'timestamp': datetime.now().isoformat(),
+        'services': {
+            'memory_processor': 'active',
+            'travel_ai': 'active'
+        }
+    })
 
 if __name__ == '__main__':
+    print("Starting Family Memory & Travel AI Platform...")
+    print("Available endpoints:")
+    print("  - POST /api/memory/upload-photo")
+    print("  - GET  /api/memory/timeline") 
+    print("  - GET  /api/memory/suggestions")
+    print("  - POST /api/travel/recommendations")
+    print("  - POST /api/travel/itinerary")
+    print("  - GET  /api/travel/cultural-insights/<destination>")
+    print("  - GET  /api/travel/patterns")
+    print("  - GET  /api/health")
+    
     app.run(debug=True, port=5000)

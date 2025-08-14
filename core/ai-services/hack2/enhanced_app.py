@@ -300,6 +300,23 @@ def get_models():
     except Exception as e:
         return jsonify({'error': f"Error connecting to vLLM server: {str(e)}"})
 
+@app.route('/api/health')
+def health_check():
+    """Health check endpoint for deployment monitoring"""
+    from datetime import datetime
+    return jsonify({
+        'status': 'healthy',
+        'service': 'Family Memory & Travel AI Platform',
+        'version': '1.0.0',
+        'timestamp': datetime.now().isoformat(),
+        'features': [
+            'Family Photo Analysis',
+            'Memory Timeline Generation', 
+            'AI Travel Planning',
+            'Cultural Heritage Preservation'
+        ]
+    })
+
 if __name__ == '__main__':
     # Check vLLM server availability
     try:
@@ -312,5 +329,8 @@ if __name__ == '__main__':
         print(f"Warning: Could not connect to vLLM server: {e}")
         print("Application will use fallback feedback generation.")
         
+    # Get port from environment variable or default to 8000
+    port = int(os.environ.get('PORT', 8000))
+    
     # Start the Flask app
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    app.run(debug=False, host='0.0.0.0', port=port)

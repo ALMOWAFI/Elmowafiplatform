@@ -1,6 +1,18 @@
 import jwt from 'jsonwebtoken';
 import { promisify } from 'util';
-import User from '../models/User.js';
+import db from '../config/database.js';
+
+// Helper function to check if password was changed after token was issued
+const changedPasswordAfter = (passwordChangedAt, jwtTimestamp) => {
+  if (passwordChangedAt) {
+    const changedTimestamp = parseInt(
+      passwordChangedAt.getTime() / 1000,
+      10
+    );
+    return jwtTimestamp < changedTimestamp;
+  }
+  return false;
+};
 
 const auth = async (req, res, next) => {
   try {
@@ -23,7 +35,7 @@ const auth = async (req, res, next) => {
     const decoded = await promisify(jwt.verify)(token, process.env.JWT_SECRET);
 
     // 3) Check if user still exists
-    const currentUser = await User.findById(decoded.id);
+    const currentUser = await db.models.User.findByPk(decoded.id);
     if (!currentUser) {
       return res.status(401).json({
         status: 'fail',
@@ -32,7 +44,7 @@ const auth = async (req, res, next) => {
     }
 
     // 4) Check if user changed password after the token was issued
-    if (currentUser.changedPasswordAfter(decoded.iat)) {
+    if (changedPasswordAfter(currentUser.password_changed_at, decoded.iat)) {
       return res.status(401).json({
         status: 'fail',
         message: 'User recently changed password! Please log in again.'
@@ -62,14 +74,13 @@ const isLoggedIn = async (req, res, next) => {
       );
 
       // 2) Check if user still exists
-      const User = require('../models/User');
-      const currentUser = await User.findById(decoded.id);
+      const currentUser = await db.models.User.findByPk(decoded.id);
       if (!currentUser) {
         return next();
       }
 
       // 3) Check if user changed password after the token was issued
-      if (currentUser.changedPasswordAfter(decoded.iat)) {
+      if (changedPasswordAfter(currentUser.password_changed_at, decoded.iat)) {
         return next();
       }
 

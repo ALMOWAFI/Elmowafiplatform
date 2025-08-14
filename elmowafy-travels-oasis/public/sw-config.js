@@ -29,7 +29,7 @@ const CACHE_STRATEGIES = {
     maxAge: 5 * 60, // 5 minutes
     maxEntries: 50,
     patterns: [
-      /^https:\/\/localhost:8001\/api\//,
+      /^https:\/\/localhost:8000\/api\//,
       /^https:\/\/.*\.vercel\.app\/api\//,
       /^https:\/\/.*\.railway\.app\/api\//,
     ]
@@ -231,4 +231,4 @@ if (typeof window !== 'undefined') {
     SW_PERFORMANCE_CONFIG,
     CACHE_VERSION
   };
-} 
+}

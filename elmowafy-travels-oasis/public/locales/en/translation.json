@@ -1,4 +1,29 @@
 {
+  "common": {
+    "loading": "Loading...",
+    "error": "An error occurred",
+    "retry": "Retry",
+    "save": "Save",
+    "cancel": "Cancel",
+    "delete": "Delete",
+    "edit": "Edit",
+    "view": "View",
+    "create": "Create",
+    "search": "Search",
+    "filter": "Filter",
+    "sort": "Sort",
+    "more": "More",
+    "less": "Less",
+    "next": "Next",
+    "previous": "Previous",
+    "submit": "Submit",
+    "back": "Back",
+    "close": "Close",
+    "active": "Active",
+    "select": "Select",
+    "apply": "Apply",
+    "reset": "Reset"
+  },
   "welcome": "Welcome to Elmowafy Travels Oasis",
   "worldMap": {
     "title": "World Map",
@@ -7,5 +32,119 @@
   "aiAssistant": {
     "title": "AI Assistant",
     "description": "Your personal guide to our family's history and travels."
-  }
+  },
+  "navigation": {
+    "home": "Home",
+    "worldMap": "World Map",
+    "family": "Family",
+    "memories": "Memories",
+    "planner": "Travel Planner",
+    "challenges": "Challenges",
+    "assistant": "AI Assistant",
+    "settings": "Settings",
+    "profile": "Profile",
+    "logout": "Logout",
+    "login": "Login",
+    "register": "Register",
+    "language": "Language"
+  },
+  "hero": {
+    "title": "Preserve Your Family's Journey",
+    "subtitle": "Capture memories, plan adventures, and connect generations through shared experiences.",
+    "cta": "Start Planning"
+  },
+  "planner": {
+    "title": "Plan Your Next Family Adventure",
+    "destination": "Destination",
+    "dates": "Travel Dates",
+    "startDate": "Start Date",
+    "endDate": "End Date",
+    "travelers": "Travelers",
+    "budget": "Budget",
+    "notes": "Notes",
+    "createPlan": "Create Plan",
+    "inspiration": "Need Inspiration?",
+    "browseAdventures": "Browse through our family's previous adventures to spark ideas for your next journey."
+  },
+  "family": {
+    "title": "Family Tree",
+    "addMember": "Add Family Member",
+    "editMember": "Edit Family Member",
+    "removeMember": "Remove Family Member",
+    "name": "Name",
+    "relation": "Relation",
+    "birthDate": "Birth Date",
+    "bio": "Biography",
+    "interests": "Interests",
+    "travelPreferences": "Travel Preferences"
+  },
+  "memories": {
+    "title": "Family Memories",
+    "upload": "Upload Memory",
+    "capture": "Capture Moment",
+    "date": "Date",
+    "location": "Location",
+    "people": "People",
+    "tags": "Tags",
+    "description": "Description",
+    "share": "Share Memory",
+    "download": "Download",
+    "delete": "Delete Memory",
+    "edit": "Edit Details"
+  },
+  "challenges": {
+    "title": "Travel Challenges",
+    "create": "Create Challenge",
+    "join": "Join Challenge",
+    "active": "Active Challenges",
+    "completed": "Completed Challenges",
+    "upcoming": "Upcoming Challenges",
+    "difficulty": "Difficulty",
+    "duration": "Duration",
+    "points": "Points",
+    "rewards": "Rewards",
+    "leaderboard": "Leaderboard"
+  },
+  "settings": {
+    "title": "Settings",
+    "account": "Account Settings",
+    "privacy": "Privacy",
+    "notifications": "Notifications",
+    "appearance": "Appearance",
+    "language": "Language",
+    "theme": {
+      "title": "Theme",
+      "dark": "Dark Mode",
+      "light": "Light Mode",
+      "system": "System Default",
+      "toggle": "Toggle Theme",
+      "auto": "Auto (follows system)"
+    },
+    "direction": {
+      "title": "Text Direction",
+      "ltr": "Left to Right",
+      "rtl": "Right to Left",
+      "auto": "Auto (based on language)"
+    }
+  },
+  "auth": {
+    "login": "Login",
+    "register": "Register",
+    "forgotPassword": "Forgot Password?",
+    "resetPassword": "Reset Password",
+    "email": "Email",
+    "password": "Password",
+    "confirmPassword": "Confirm Password",
+    "name": "Name",
+    "username": "Username"
+  },
+  "footer": {
+    "about": "About Us",
+    "contact": "Contact",
+    "privacy": "Privacy Policy",
+    "terms": "Terms of Service",
+    "copyright": "© 2023 Elmowafy Travels Oasis. All rights reserved."
+  },
+  "recent": "Recent Family Adventures",
+  "viewMore": "View More"
 }

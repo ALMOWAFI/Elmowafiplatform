@@ -1,11 +1,14 @@
 import express from 'express';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
-import User from '../../models/User.js';
+import { v4 as uuidv4 } from 'uuid';
 import dotenv from 'dotenv';
 dotenv.config();
 
 const router = express.Router();
+
+// In-memory user storage for testing (replace with actual database later)
+const users = [];
 
 const signToken = (id) => {
   return jwt.sign({ id }, process.env.JWT_SECRET, {
@@ -23,22 +26,31 @@ router.post('/register', async (req, res) => {
     if (password !== passwordConfirm) {
       return res.status(400).json({ status: 'fail', message: 'Passwords do not match.' });
     }
-    const existingUser = await User.findOne({ email });
+    
+    // Check if user already exists
+    const existingUser = users.find(user => user.email === email);
     if (existingUser) {
       return res.status(400).json({ status: 'fail', message: 'Email already in use.' });
     }
+    
+    // Create new user
     const hashedPassword = await bcrypt.hash(password, 12);
-    const newUser = await User.create({
+    const newUser = {
+      id: uuidv4(),
       name,
       email,
       password: hashedPassword,
-      passwordConfirm: hashedPassword,
-    });
-    const token = signToken(newUser._id);
+      role: 'user',
+      createdAt: new Date()
+    };
+    
+    users.push(newUser);
+    
+    const token = signToken(newUser.id);
     res.status(201).json({
       status: 'success',
-      token,
-      data: { user: { id: newUser._id, name: newUser.name, email: newUser.email } }
+      accessToken: token,
+      data: { user: { id: newUser.id, name: newUser.name, email: newUser.email, role: newUser.role } }
     });
   } catch (err) {
     res.status(500).json({ status: 'error', message: err.message });
@@ -52,15 +64,18 @@ router.post('/login', async (req, res) => {
     if (!email || !password) {
       return res.status(400).json({ status: 'fail', message: 'Email and password are required.' });
     }
-    const user = await User.findOne({ email }).select('+password');
+    
+    // Find user
+    const user = users.find(user => user.email === email);
     if (!user || !(await bcrypt.compare(password, user.password))) {
       return res.status(401).json({ status: 'fail', message: 'Incorrect email or password.' });
     }
-    const token = signToken(user._id);
+    
+    const token = signToken(user.id);
     res.status(200).json({
       status: 'success',
-      token,
-      data: { user: { id: user._id, name: user.name, email: user.email } }
+      accessToken: token,
+      data: { user: { id: user.id, name: user.name, email: user.email, role: user.role } }
     });
   } catch (err) {
     res.status(500).json({ status: 'error', message: err.message });

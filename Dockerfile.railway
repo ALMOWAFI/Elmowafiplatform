@@ -1,0 +1,42 @@
+# Railway Optimized Dockerfile for Elmowafiplatform
+FROM python:3.11-slim
+
+# Set environment variables
+ENV PYTHONPATH=/app
+ENV PYTHONUNBUFFERED=1
+ENV PORT=8001
+ENV AI_SERVICE_PORT=5000
+
+WORKDIR /app
+
+# Install system dependencies (minimal for Railway)
+RUN apt-get update && apt-get install -y \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements first for better caching
+COPY backend/requirements.txt ./backend_requirements.txt
+
+# Install Python dependencies
+RUN pip install --no-cache-dir -r backend_requirements.txt
+
+# Install common AI dependencies directly
+RUN pip install --no-cache-dir flask opencv-python pillow numpy requests azure-cognitiveservices-vision-computervision
+
+# Copy application code
+COPY backend/ ./backend/
+COPY core/ai-services/hack2/ ./ai-services/
+COPY start_unified.py .
+
+# Create necessary directories
+RUN mkdir -p uploads data logs ai-services/uploads
+
+# Expose the main port (Railway will route to this)
+EXPOSE $PORT
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+    CMD curl -f http://localhost:$PORT/api/v1/health || exit 1
+
+# Start unified server
+CMD ["python", "start_unified.py"]

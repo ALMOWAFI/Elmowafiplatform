@@ -1,0 +1,203 @@
+# Enhanced Docker Compose for Elmowafiplatform with API v1, GraphQL, and Service Mesh
+version: '3.8'
+
+services:
+  # Enhanced Backend API with v1, GraphQL, and Service Mesh
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.enhanced
+    container_name: elmowafiplatform-backend-enhanced
+    ports:
+      - "8000:8000"
+    environment:
+      - ENVIRONMENT=development
+      - PYTHONUNBUFFERED=1
+      - PORT=8000
+      - DATABASE_URL=postgresql://postgres:password@postgres:5432/elmowafiplatform
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - AI_SERVICES_ENABLED=true
+      - GRAPHQL_ENABLED=true
+      - SERVICE_MESH_ENABLED=true
+      - CONSUL_HOST=consul
+      - CONSUL_PORT=8500
+      - JWT_SECRET_KEY=your-super-secret-jwt-key-change-in-production
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - GOOGLE_AI_API_KEY=${GOOGLE_AI_API_KEY:-}
+    volumes:
+      - ./data:/app/data
+      - ./uploads:/app/uploads
+      - ./logs:/app/logs
+      - ./memories:/app/memories
+    depends_on:
+      - postgres
+      - redis
+      - consul
+    restart: unless-stopped
+    networks:
+      - elmowafiplatform-enhanced
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: elmowafiplatform-postgres
+    environment:
+      - POSTGRES_DB=elmowafiplatform
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d
+    restart: unless-stopped
+    networks:
+      - elmowafiplatform-enhanced
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Redis for caching and WebSocket management
+  redis:
+    image: redis:7-alpine
+    container_name: elmowafiplatform-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    networks:
+      - elmowafiplatform-enhanced
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Consul for service discovery and configuration
+  consul:
+    image: consul:1.15-alpine
+    container_name: elmowafiplatform-consul
+    ports:
+      - "8500:8500"
+      - "8600:8600/udp"
+    volumes:
+      - consul_data:/consul/data
+    restart: unless-stopped
+    networks:
+      - elmowafiplatform-enhanced
+    command: consul agent -server -bootstrap-expect=1 -ui -client=0.0.0.0 -data-dir=/consul/data
+    healthcheck:
+      test: ["CMD", "consul", "members"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Enhanced Frontend React App with new integration layer
+  frontend:
+    build:
+      context: ./elmowafy-travels-oasis
+      dockerfile: Dockerfile.enhanced
+    container_name: elmowafiplatform-frontend-enhanced
+    ports:
+      - "5173:5173"
+    environment:
+      - NODE_ENV=development
+      - VITE_API_URL=http://backend:8000
+      - VITE_API_URL_EXTERNAL=http://localhost:8000
+      - VITE_GRAPHQL_URL=http://localhost:8000/api/v1/graphql
+      - VITE_WEBSOCKET_URL=ws://localhost:8000/api/v1/ws
+      - VITE_SERVICE_MESH_URL=http://localhost:8000/api/v1/service-mesh
+    volumes:
+      - ./elmowafy-travels-oasis/src:/app/src
+      - ./elmowafy-travels-oasis/public:/app/public
+      - ./elmowafy-travels-oasis/package.json:/app/package.json
+      - ./elmowafy-travels-oasis/vite.config.ts:/app/vite.config.ts
+    depends_on:
+      - backend
+    restart: unless-stopped
+    networks:
+      - elmowafiplatform-enhanced
+
+  # Prometheus for monitoring
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: elmowafiplatform-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+    restart: unless-stopped
+    networks:
+      - elmowafiplatform-enhanced
+
+  # Grafana for visualization
+  grafana:
+    image: grafana/grafana:latest
+    container_name: elmowafiplatform-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards
+      - ./monitoring/grafana/datasources:/etc/grafana/provisioning/datasources
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+    networks:
+      - elmowafiplatform-enhanced
+
+  # Nginx reverse proxy for production-like setup
+  nginx:
+    image: nginx:alpine
+    container_name: elmowafiplatform-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf
+      - ./nginx/conf.d:/etc/nginx/conf.d
+      - ./ssl:/etc/nginx/ssl
+    depends_on:
+      - frontend
+      - backend
+    restart: unless-stopped
+    networks:
+      - elmowafiplatform-enhanced
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  consul_data:
+    driver: local
+  prometheus_data:
+    driver: local
+  grafana_data:
+    driver: local
+
+networks:
+  elmowafiplatform-enhanced:
+    driver: bridge

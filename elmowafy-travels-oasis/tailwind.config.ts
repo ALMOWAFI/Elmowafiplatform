@@ -19,25 +19,25 @@ export default {
 			}
 		},
 		extend: {
-			fontFamily: {
-				'playfair': ['Playfair Display', 'serif'],
-				'roboto': ['Roboto', 'sans-serif'],
-				'noto': ['Noto Sans Arabic', 'sans-serif'],
-			},
+            fontFamily: {
+                playfair: ['Playfair Display', 'serif'],
+                inter: ['Inter', 'system-ui', 'sans-serif'],
+                noto: ['Noto Sans Arabic', 'sans-serif'],
+            },
 			colors: {
 				border: 'hsl(var(--border))',
 				input: 'hsl(var(--input))',
 				ring: 'hsl(var(--ring))',
 				background: 'hsl(var(--background))',
 				foreground: 'hsl(var(--foreground))',
-				primary: {
-					DEFAULT: '#0AB3B8',
-					foreground: '#FFFFFF'
-				},
-				secondary: {
-					DEFAULT: '#F0C24C',
-					foreground: '#1A1A1A'
-				},
+                primary: {
+                    DEFAULT: '#0066FF',
+                    foreground: '#FFFFFF'
+                },
+                secondary: {
+                    DEFAULT: '#FDF6E3',
+                    foreground: '#1A1A1A'
+                },
 				sand: {
 					DEFAULT: '#E5D3B3',
 					foreground: '#1A1A1A'
@@ -50,10 +50,10 @@ export default {
 					DEFAULT: 'hsl(var(--muted))',
 					foreground: 'hsl(var(--muted-foreground))'
 				},
-				accent: {
-					DEFAULT: '#E5D3B3',
-					foreground: '#1A1A1A'
-				},
+                accent: {
+                    DEFAULT: '#E5D3B3',
+                    foreground: '#1A1A1A'
+                },
 				popover: {
 					DEFAULT: 'hsl(var(--popover))',
 					foreground: 'hsl(var(--popover-foreground))'

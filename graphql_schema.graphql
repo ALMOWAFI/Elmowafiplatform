@@ -1,0 +1,169 @@
+# GraphQL Schema for Elmowafiplatform
+
+# User type represents a user in the system
+type User {
+  id: ID!
+  email: String!
+  username: String!
+  fullName: String
+  createdAt: DateTime!
+  updatedAt: DateTime
+  
+  # Relationships
+  memories: [Memory!]!
+  budget: Budget
+  travelRecommendations: [TravelRecommendation!]!
+}
+
+# Memory type represents a user's memory
+type Memory {
+  id: ID!
+  userId: ID!
+  title: String!
+  description: String
+  imagePath: String!
+  tags: [String!]!
+  createdAt: DateTime!
+  updatedAt: DateTime
+  
+  # Relationships
+  user: User!
+}
+
+# Budget type represents a user's budget
+type Budget {
+  id: ID!
+  userId: ID!
+  name: String!
+  totalAmount: Float!
+  currency: String!
+  createdAt: DateTime!
+  updatedAt: DateTime
+  
+  # Relationships
+  items: [BudgetItem!]!
+}
+
+# BudgetItem type represents an item in a budget
+type BudgetItem {
+  id: ID!
+  budgetId: ID!
+  name: String!
+  amount: Float!
+  category: String!
+  createdAt: DateTime!
+  updatedAt: DateTime
+}
+
+# TravelRecommendation type represents a travel recommendation for a user
+type TravelRecommendation {
+  id: ID!
+  userId: ID!
+  destination: String!
+  description: String
+  budgetEstimate: Float!
+  createdAt: DateTime!
+  updatedAt: DateTime
+}
+
+# Input types for mutations
+input UserInput {
+  email: String!
+  username: String!
+  password: String!
+  fullName: String
+}
+
+input MemoryInput {
+  title: String!
+  description: String
+  imagePath: String!
+  tags: [String!]!
+}
+
+input BudgetInput {
+  name: String!
+  totalAmount: Float!
+  currency: String!
+}
+
+input BudgetItemInput {
+  budgetId: ID!
+  name: String!
+  amount: Float!
+  category: String!
+}
+
+input TravelRecommendationInput {
+  destination: String!
+  description: String
+  budgetEstimate: Float!
+}
+
+# Custom scalar for DateTime
+scalar DateTime
+
+# Queries
+type Query {
+  # User queries
+  user(id: ID!): User
+  userByEmail(email: String!): User
+  
+  # Memory queries
+  memory(id: ID!): Memory
+  userMemories(userId: ID!): [Memory!]!
+  searchMemories(userId: ID!, searchTerm: String!): [Memory!]!
+  
+  # Budget queries
+  userBudget(userId: ID!): Budget
+  
+  # Travel recommendation queries
+  userTravelRecommendations(userId: ID!): [TravelRecommendation!]!
+}
+
+# Mutations
+type Mutation {
+  # User mutations
+  createUser(userInput: UserInput!): User!
+  updateUser(id: ID!, userInput: UserInput!): User!
+  deleteUser(id: ID!): Boolean!
+  
+  # Memory mutations
+  createMemory(userId: ID!, memoryInput: MemoryInput!): Memory!
+  updateMemory(id: ID!, memoryInput: MemoryInput!): Memory!
+  deleteMemory(id: ID!): Boolean!
+  
+  # Budget mutations
+  createBudget(userId: ID!, budgetInput: BudgetInput!): Budget!
+  updateBudget(id: ID!, budgetInput: BudgetInput!): Budget!
+  deleteBudget(id: ID!): Boolean!
+  
+  # Budget item mutations
+  createBudgetItem(budgetItemInput: BudgetItemInput!): BudgetItem!
+  updateBudgetItem(id: ID!, budgetItemInput: BudgetItemInput!): BudgetItem!
+  deleteBudgetItem(id: ID!): Boolean!
+  
+  # Travel recommendation mutations
+  createTravelRecommendation(userId: ID!, recommendationInput: TravelRecommendationInput!): TravelRecommendation!
+  updateTravelRecommendation(id: ID!, recommendationInput: TravelRecommendationInput!): TravelRecommendation!
+  deleteTravelRecommendation(id: ID!): Boolean!
+}
+
+# Subscriptions
+type Subscription {
+  # Memory subscriptions
+  memoryUpdates(userId: ID!): Memory!
+  
+  # Budget subscriptions
+  budgetUpdates(userId: ID!): Budget!
+  
+  # Travel recommendation subscriptions
+  travelRecommendationUpdates(userId: ID!): TravelRecommendation!
+}
+
+# Schema definition
+schema {
+  query: Query
+  mutation: Mutation
+  subscription: Subscription
+}

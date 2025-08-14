@@ -44,7 +44,24 @@ Thumbs.db
 
 # Node modules (if any)
 node_modules/
+*/node_modules/
 npm-debug.log*
+
+# Large directories not needed in backend image
+canvas-lms/
+edx-platform/
+moodle/
+monitoring/
+integrations/
+ai-services/
+# Note: Do NOT ignore `backend/` so the app module `backend.main:app` is included
+core/
+elmowafiplatform-api/
+budget-system/
+backups/
+features/
+tools/
+scripts/
 
 # Backup files
 *.bak

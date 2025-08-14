@@ -1,0 +1,34 @@
+# Simple Railway Dockerfile for Elmowafiplatform
+FROM python:3.11-slim
+
+WORKDIR /app
+
+ENV PYTHONUNBUFFERED=1
+ENV PORT=8001
+ENV AI_SERVICE_PORT=5000
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
+
+# Install Python dependencies
+COPY backend/requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Install AI dependencies (using headless OpenCV)
+RUN pip install --no-cache-dir flask opencv-python-headless pillow numpy requests azure-cognitiveservices-vision-computervision
+
+# Copy backend application
+COPY backend/ .
+
+# Create directories
+RUN mkdir -p uploads data logs ai-services/uploads
+
+# Expose main port
+EXPOSE $PORT
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+    CMD curl -f http://localhost:$PORT/api/v1/health || exit 1
+
+# Start the unified server directly
+CMD ["python", "simple_main.py"]

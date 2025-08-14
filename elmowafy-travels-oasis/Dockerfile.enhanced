@@ -1,0 +1,41 @@
+# Enhanced Development Dockerfile for React Frontend with Integration Layer
+FROM node:18-alpine
+
+# Set working directory
+WORKDIR /app
+
+# Set environment variables
+ENV NODE_ENV=development
+ENV VITE_API_URL=http://backend:8000
+ENV VITE_API_URL_EXTERNAL=http://localhost:8000
+ENV VITE_GRAPHQL_URL=http://localhost:8000/api/v1/graphql
+ENV VITE_WEBSOCKET_URL=ws://localhost:8000/api/v1/ws
+ENV VITE_SERVICE_MESH_URL=http://localhost:8000/api/v1/service-mesh
+
+# Install additional system dependencies for enhanced features
+RUN apk add --no-cache \
+    curl \
+    git \
+    python3 \
+    make \
+    g++
+
+# Copy package files
+COPY package*.json ./
+
+# Install all dependencies including dev dependencies
+RUN npm install
+
+# Copy source code
+COPY . .
+
+# Create necessary directories for enhanced features
+RUN mkdir -p /app/src/context/__tests__
+RUN mkdir -p /app/src/components/__tests__
+RUN mkdir -p /app/tests/mobile
+
+# Expose Vite development server port
+EXPOSE 5173
+
+# Start enhanced development server with host binding for Docker
+CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0", "--port", "5173"]

@@ -1,57 +1,51 @@
 version: '3.8'
 
 services:
-  backend:
-    build: 
-      context: ./server
+  frontend:
+    build:
+      context: .
       dockerfile: Dockerfile
-    container_name: elmowafy-backend
     ports:
-      - "5000:5000"
+      - "3000:80"
     environment:
-      - NODE_ENV=development
-      - MONGODB_URI=mongodb://mongodb:27017/elmowafy-travels
-      - JWT_SECRET=your_jwt_secret_key_here
-      - CORS_ORIGIN=http://localhost:5173
-    depends_on:
-      - mongodb
+      - NODE_ENV=production
+      - VITE_API_URL=http://localhost:8000
     restart: unless-stopped
-    networks:
-      - elmowafy-network
+    depends_on:
+      - backend
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
-  mongodb:
-    image: mongo:6.0
-    container_name: elmowafy-mongodb
+  backend:
+    build:
+      context: ..
+      dockerfile: Dockerfile
     ports:
-      - "27017:27017"
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=sqlite:///./family_platform.db
+      - JWT_SECRET=your-super-secret-jwt-key-change-in-production
+      - ENVIRONMENT=development
+      - CORS_ORIGINS=http://localhost:3000,http://localhost:5173
     volumes:
-      - mongodb_data:/data/db
-    environment:
-      - MONGO_INITDB_DATABASE=elmowafy-travels
+      - ../uploads:/app/uploads
+      - ../data:/app/data
+      - ../family_platform.db:/app/family_platform.db
     restart: unless-stopped
-    networks:
-      - elmowafy-network
-
-  mongo-express:
-    image: mongo-express:1.0.0
-    container_name: elmowafy-mongo-express
-    ports:
-      - "8081:8081"
-    environment:
-      - ME_CONFIG_MONGODB_SERVER=mongodb
-      - ME_CONFIG_MONGODB_ADMINUSERNAME=admin
-      - ME_CONFIG_MONGODB_ADMINPASSWORD=example
-      - ME_CONFIG_BASICAUTH_USERNAME=admin
-      - ME_CONFIG_BASICAUTH_PASSWORD=example
-    depends_on:
-      - mongodb
-    restart: unless-stopped
-    networks:
-      - elmowafy-network
-
-networks:
-  elmowafy-network:
-    driver: bridge
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
 volumes:
-  mongodb_data:
+  frontend-data:
+
+networks:
+  default:
+    name: elmowafy-network
