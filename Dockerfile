@@ -1,36 +1,34 @@
-FROM python:3.12-slim
+# Production Dockerfile for Elmowafiplatform on Railway
+FROM python:3.11-slim
 
-# Set environment variables
-ENV PYTHONPATH=/app
-ENV PORT=8000
-
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
-    gcc \
-    libpq-dev \
-    && rm -rf /var/lib/apt/lists/*
-
-# Create application directory
 WORKDIR /app
 
-# Copy requirements first for better Docker layer caching
-COPY requirements.txt .
+ENV PYTHONUNBUFFERED=1
+ENV PORT=8001
+ENV AI_SERVICE_PORT=5000
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies
+COPY backend/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy application code
-COPY . .
+# Install AI dependencies (using headless OpenCV for cloud deployment)
+RUN pip install --no-cache-dir flask opencv-python-headless pillow numpy requests azure-cognitiveservices-vision-computervision
 
-# Create necessary directories
-RUN mkdir -p /app/uploads
+# Copy backend application
+COPY backend/ .
 
-# Expose port
-EXPOSE 8000
+# Create directories
+RUN mkdir -p uploads data logs ai-services/uploads
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=30s --start-period=60s --retries=3 \
-    CMD curl -f http://localhost:8000/api/health || exit 1
+# Expose main port
+EXPOSE $PORT
 
-# Start the application
-CMD ["python", "main.py"]
+# Health check for Railway
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+    CMD curl -f http://localhost:$PORT/api/v1/health || exit 1
+
+# Start the unified server
+CMD ["python", "simple_main.py"]

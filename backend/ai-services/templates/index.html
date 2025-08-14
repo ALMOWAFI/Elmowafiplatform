@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Family Memory & Travel AI Platform</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Poppins', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+        .family-hero {
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+            color: white;
+        }
+        .card {
+            transition: all 0.3s ease;
+            border-radius: 15px;
+            overflow: hidden;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+            backdrop-filter: blur(10px);
+            background: rgba(255, 255, 255, 0.95);
+        }
+        .card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.15);
+        }
+        .feature-icon {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            margin-bottom: 1rem;
+        }
+        .endpoint-card {
+            background: linear-gradient(135deg, rgba(116, 75, 162, 0.1) 0%, rgba(102, 126, 234, 0.1) 100%);
+            border: 1px solid rgba(116, 75, 162, 0.2);
+            border-radius: 10px;
+            padding: 1.5rem;
+            margin-bottom: 1rem;
+        }
+        .method-get { color: #10b981; font-weight: 600; }
+        .method-post { color: #3b82f6; font-weight: 600; }
+    </style>
+</head>
+<body>
+    <div class="family-hero py-16 px-4 sm:px-6 lg:px-8">
+        <div class="max-w-7xl mx-auto text-center">
+            <h1 class="text-5xl font-bold mb-4">🏠 Family Memory & Travel AI Platform</h1>
+            <p class="text-xl mb-6">Intelligent family photo analysis, memory management, and personalized travel planning</p>
+            <div class="flex justify-center items-center space-x-4">
+                <div class="h-3 w-3 rounded-full bg-green-400 animate-pulse"></div>
+                <p class="text-lg">AI Services: Active & Ready</p>
+            </div>
+        </div>
+    </div>
+
+    <div class="max-w-7xl mx-auto py-12 px-4 sm:px-6 lg:px-8">
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-12">
+            <!-- Family Memory Features -->
+            <div class="card p-8">
+                <div class="feature-icon">📸</div>
+                <h2 class="text-2xl font-bold mb-4">Family Photo Analysis</h2>
+                <p class="text-gray-600 mb-6">Upload family photos and get AI-powered analysis including family member recognition, activity detection, and memory categorization.</p>
+                <div class="space-y-3">
+                    <div class="text-sm text-gray-500">✓ Facial recognition for family members</div>
+                    <div class="text-sm text-gray-500">✓ Activity and event detection</div>
+                    <div class="text-sm text-gray-500">✓ Cultural heritage preservation</div>
+                    <div class="text-sm text-gray-500">✓ Arabic/English bilingual support</div>
+                </div>
+            </div>
+
+            <!-- Memory Timeline -->
+            <div class="card p-8">
+                <div class="feature-icon">⏰</div>
+                <h2 class="text-2xl font-bold mb-4">Memory Timeline</h2>
+                <p class="text-gray-600 mb-6">Create intelligent family timelines with smart memory suggestions, "On this day" features, and connected family experiences.</p>
+                <div class="space-y-3">
+                    <div class="text-sm text-gray-500">✓ Chronological memory organization</div>
+                    <div class="text-sm text-gray-500">✓ Smart memory suggestions</div>
+                    <div class="text-sm text-gray-500">✓ Family member connections</div>
+                    <div class="text-sm text-gray-500">✓ Anniversary reminders</div>
+                </div>
+            </div>
+
+            <!-- Travel Planning -->
+            <div class="card p-8">
+                <div class="feature-icon">🌍</div>
+                <h2 class="text-2xl font-bold mb-4">AI Travel Planning</h2>
+                <p class="text-gray-600 mb-6">Get personalized family travel recommendations, detailed itineraries, and cultural insights based on your family's history and preferences.</p>
+                <div class="space-y-3">
+                    <div class="text-sm text-gray-500">✓ Personalized destination recommendations</div>
+                    <div class="text-sm text-gray-500">✓ Detailed family itineraries</div>
+                    <div class="text-sm text-gray-500">✓ Cultural insights and tips</div>
+                    <div class="text-sm text-gray-500">✓ Budget-aware planning</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- API Endpoints -->
+        <div class="card p-8">
+            <h2 class="text-3xl font-bold mb-6 text-center">API Endpoints</h2>
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                
+                <div>
+                    <h3 class="text-xl font-semibold mb-4">📸 Family Memory API</h3>
+                    
+                    <div class="endpoint-card">
+                        <div class="flex items-center mb-2">
+                            <span class="method-post">POST</span>
+                            <code class="ml-3 text-sm">/api/memory/upload-photo</code>
+                        </div>
+                        <p class="text-sm text-gray-600">Upload and analyze family photos with AI-powered family member detection and memory categorization.</p>
+                    </div>
+
+                    <div class="endpoint-card">
+                        <div class="flex items-center mb-2">
+                            <span class="method-get">GET</span>
+                            <code class="ml-3 text-sm">/api/memory/timeline</code>
+                        </div>
+                        <p class="text-sm text-gray-600">Generate chronological family memory timeline with smart categorization.</p>
+                    </div>
+
+                    <div class="endpoint-card">
+                        <div class="flex items-center mb-2">
+                            <span class="method-get">GET</span>
+                            <code class="ml-3 text-sm">/api/memory/suggestions</code>
+                        </div>
+                        <p class="text-sm text-gray-600">Get "On this day" memory suggestions and similar family experiences.</p>
+                    </div>
+                </div>
+
+                <div>
+                    <h3 class="text-xl font-semibold mb-4">🌍 Family Travel AI</h3>
+                    
+                    <div class="endpoint-card">
+                        <div class="flex items-center mb-2">
+                            <span class="method-post">POST</span>
+                            <code class="ml-3 text-sm">/api/travel/recommendations</code>
+                        </div>
+                        <p class="text-sm text-gray-600">Get personalized travel destination recommendations based on family preferences and history.</p>
+                    </div>
+
+                    <div class="endpoint-card">
+                        <div class="flex items-center mb-2">
+                            <span class="method-post">POST</span>
+                            <code class="ml-3 text-sm">/api/travel/itinerary</code>
+                        </div>
+                        <p class="text-sm text-gray-600">Create detailed family itineraries with activities, logistics, and cultural insights.</p>
+                    </div>
+
+                    <div class="endpoint-card">
+                        <div class="flex items-center mb-2">
+                            <span class="method-get">GET</span>
+                            <code class="ml-3 text-sm">/api/travel/cultural-insights/&lt;destination&gt;</code>
+                        </div>
+                        <p class="text-sm text-gray-600">Get cultural insights, etiquette tips, and family-friendly advice for destinations.</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="mt-8 text-center">
+                <div class="endpoint-card inline-block">
+                    <div class="flex items-center">
+                        <span class="method-get">GET</span>
+                        <code class="ml-3 text-sm">/api/health</code>
+                    </div>
+                    <p class="text-sm text-gray-600 mt-2">Health check endpoint for monitoring service status.</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Quick Start -->
+        <div class="card p-8 mt-8">
+            <h2 class="text-2xl font-bold mb-6 text-center">🚀 Quick Start Guide</h2>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div class="text-center">
+                    <div class="feature-icon mx-auto">1️⃣</div>
+                    <h3 class="text-lg font-semibold mb-2">Upload Photos</h3>
+                    <p class="text-sm text-gray-600">Send family photos to <code>/api/memory/upload-photo</code> to analyze family members and create memories.</p>
+                </div>
+                <div class="text-center">
+                    <div class="feature-icon mx-auto">2️⃣</div>
+                    <h3 class="text-lg font-semibold mb-2">View Timeline</h3>
+                    <p class="text-sm text-gray-600">Use <code>/api/memory/timeline</code> to get your organized family memory timeline.</p>
+                </div>
+                <div class="text-center">
+                    <div class="feature-icon mx-auto">3️⃣</div>
+                    <h3 class="text-lg font-semibold mb-2">Plan Travel</h3>
+                    <p class="text-sm text-gray-600">Get personalized travel recommendations with <code>/api/travel/recommendations</code>.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <footer class="bg-gradient-to-r from-purple-900 to-indigo-900 text-white py-8 mt-12">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
+            <h3 class="text-lg font-semibold mb-2">Family Memory & Travel AI Platform</h3>
+            <p class="text-purple-200">Preserving family memories and enabling intelligent travel experiences</p>
+            <div class="mt-4 flex justify-center space-x-6">
+                <span class="text-sm">🏠 Family-Focused</span>
+                <span class="text-sm">🤖 AI-Powered</span>
+                <span class="text-sm">🌍 Travel-Ready</span>
+                <span class="text-sm">🗣️ Arabic/English</span>
+            </div>
+        </div>
+    </footer>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // Add some interactive elements
+            const cards = document.querySelectorAll('.card');
+            cards.forEach(card => {
+                card.addEventListener('mouseenter', function() {
+                    this.style.transform = 'translateY(-8px) scale(1.02)';
+                });
+                card.addEventListener('mouseleave', function() {
+                    this.style.transform = 'translateY(0) scale(1)';
+                });
+            });
+
+            // Health check on page load
+            fetch('/api/health')
+                .then(response => response.json())
+                .then(data => {
+                    console.log('Family AI Platform Status:', data);
+                })
+                .catch(error => {
+                    console.error('Service health check failed:', error);
+                });
+        });
+    </script>
+</body>
+</html>

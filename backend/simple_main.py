@@ -411,5 +411,32 @@ logger.info(f"AI service configured at: {AI_SERVICE_URL}")
 async def shutdown_event():
     await ai_proxy.close()
 
+async def start_ai_service():
+    """Start AI service in background"""
+    import subprocess
+    import os
+    from pathlib import Path
+    
+    ai_service_dir = Path(__file__).parent / "ai-services"
+    if ai_service_dir.exists() and (ai_service_dir / "app.py").exists():
+        logger.info("Starting AI service in background...")
+        ai_env = os.environ.copy()
+        ai_env['PORT'] = '5000'
+        ai_env['FLASK_ENV'] = 'production'
+        
+        subprocess.Popen([
+            "python", str(ai_service_dir / "app.py")
+        ], env=ai_env, cwd=str(ai_service_dir))
+        
+        logger.info("AI service started on port 5000")
+    else:
+        logger.warning("AI service not found, continuing without AI features")
+
 if __name__ == "__main__":
+    import asyncio
+    
+    # Start AI service in background
+    asyncio.run(start_ai_service())
+    
+    # Start main server
     uvicorn.run(app, host=HOST, port=PORT)

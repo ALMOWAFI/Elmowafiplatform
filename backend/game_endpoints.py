@@ -253,26 +253,32 @@ def initialize_location_challenge(game):
     }
 
 # Location Challenge Models
+class TargetLocation(BaseModel):
+    latitude: float
+    longitude: float
+
 class LocationChallenge(BaseModel):
     challenge_name: str
-    target_location: str
-    target_latitude: float
-    target_longitude: float
+    description: str = ""
+    target_location: Optional[TargetLocation] = None
+    target_latitude: Optional[float] = None
+    target_longitude: Optional[float] = None
+    radius: int = 50
+    points: int = 100
     challenge_type: str = "reach_point"
-    points_reward: int = 100
     time_limit_minutes: int = 60
-    verification_radius: int = 50
 
 class LocationChallengeResponse(BaseModel):
     id: str
     challenge_name: str
-    target_location: str
-    target_latitude: float
-    target_longitude: float
+    description: str
+    target_location: Optional[TargetLocation] = None
+    target_latitude: Optional[float] = None
+    target_longitude: Optional[float] = None
     challenge_type: str
-    points_reward: int
+    points: int
+    radius: int
     time_limit_minutes: int
-    verification_radius: int
     status: str
     created_at: str
 
@@ -294,13 +300,14 @@ async def get_location_challenges(game_id: str):
         challenges.append({
             "id": challenge["id"],
             "challenge_name": challenge["challenge_name"],
-            "target_location": challenge["target_location"],
-            "target_latitude": challenge["target_latitude"],
-            "target_longitude": challenge["target_longitude"],
+            "description": challenge.get("description", ""),
+            "target_location": challenge.get("target_location", None),
+            "target_latitude": challenge.get("target_latitude", None),
+            "target_longitude": challenge.get("target_longitude", None),
             "challenge_type": challenge["challenge_type"],
-            "points_reward": challenge["points_reward"],
+            "points": challenge.get("points", challenge.get("points_reward", 100)),
+            "radius": challenge.get("radius", challenge.get("verification_radius", 50)),
             "time_limit_minutes": challenge["time_limit_minutes"],
-            "verification_radius": challenge["verification_radius"],
             "status": challenge["status"],
             "created_at": challenge["created_at"]
         })
@@ -319,17 +326,28 @@ async def create_location_challenge(game_id: str, challenge: LocationChallenge):
     if "location_challenges" not in games_db[game_id]:
         games_db[game_id]["location_challenges"] = []
     
+    # Handle target location from either nested object or direct coordinates
+    target_latitude = challenge.target_latitude
+    target_longitude = challenge.target_longitude
+    target_location = None
+    
+    if challenge.target_location:
+        target_latitude = challenge.target_location.latitude
+        target_longitude = challenge.target_location.longitude
+        target_location = {"latitude": target_latitude, "longitude": target_longitude}
+    
     challenge_id = str(uuid.uuid4())
     new_challenge = {
         "id": challenge_id,
         "challenge_name": challenge.challenge_name,
-        "target_location": challenge.target_location,
-        "target_latitude": challenge.target_latitude,
-        "target_longitude": challenge.target_longitude,
+        "description": challenge.description,
+        "target_location": target_location,
+        "target_latitude": target_latitude,
+        "target_longitude": target_longitude,
         "challenge_type": challenge.challenge_type,
-        "points_reward": challenge.points_reward,
+        "points": challenge.points,
+        "radius": challenge.radius,
         "time_limit_minutes": challenge.time_limit_minutes,
-        "verification_radius": challenge.verification_radius,
         "status": "active",
         "created_at": datetime.now().isoformat()
     }
@@ -346,18 +364,29 @@ async def create_global_location_challenge(challenge: LocationChallenge):
     # Initialize global challenges if not exists
     if "global_challenges" not in globals():
         globals()["global_challenges"] = []
+        
+    # Handle target location from either nested object or direct coordinates
+    target_latitude = challenge.target_latitude
+    target_longitude = challenge.target_longitude
+    target_location = None
+    
+    if challenge.target_location:
+        target_latitude = challenge.target_location.latitude
+        target_longitude = challenge.target_location.longitude
+        target_location = {"latitude": target_latitude, "longitude": target_longitude}
     
     challenge_id = str(uuid.uuid4())
     new_challenge = {
         "id": challenge_id,
         "challenge_name": challenge.challenge_name,
-        "target_location": challenge.target_location,
-        "target_latitude": challenge.target_latitude,
-        "target_longitude": challenge.target_longitude,
+        "description": challenge.description,
+        "target_location": target_location,
+        "target_latitude": target_latitude,
+        "target_longitude": target_longitude,
         "challenge_type": challenge.challenge_type,
-        "points_reward": challenge.points_reward,
+        "points": challenge.points,
+        "radius": challenge.radius,
         "time_limit_minutes": challenge.time_limit_minutes,
-        "verification_radius": challenge.verification_radius,
         "status": "active",
         "created_at": datetime.now().isoformat()
     }
@@ -375,7 +404,24 @@ async def get_global_location_challenges():
     if "global_challenges" not in globals():
         globals()["global_challenges"] = []
     
-    return {"challenges": globals()["global_challenges"]}
+    challenges = []
+    for challenge in globals()["global_challenges"]:
+        challenges.append({
+            "id": challenge["id"],
+            "challenge_name": challenge["challenge_name"],
+            "description": challenge.get("description", ""),
+            "target_location": challenge.get("target_location", None),
+            "target_latitude": challenge.get("target_latitude", None),
+            "target_longitude": challenge.get("target_longitude", None),
+            "challenge_type": challenge["challenge_type"],
+            "points": challenge.get("points", challenge.get("points_reward", 100)),
+            "radius": challenge.get("radius", challenge.get("verification_radius", 50)),
+            "time_limit_minutes": challenge["time_limit_minutes"],
+            "status": challenge["status"],
+            "created_at": challenge["created_at"]
+        })
+    
+    return {"challenges": challenges}
 
 # WebSocket connection manager for real-time gaming
 class GameConnectionManager:

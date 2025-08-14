@@ -1,0 +1,56 @@
+FROM python:3.11-slim
+
+# Set working directory
+WORKDIR /app
+
+# Install system dependencies needed for OpenCV and image processing
+RUN apt-get update && apt-get install -y \
+    gcc \
+    g++ \
+    libgl1-mesa-glx \
+    libglib2.0-0 \
+    libsm6 \
+    libxext6 \
+    libxrender-dev \
+    libgomp1 \
+    curl \
+    libhdf5-dev \
+    pkg-config \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements first for better caching
+COPY requirements.txt .
+
+# Install Python dependencies
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Install additional dependencies for the family platform
+RUN pip install --no-cache-dir \
+    flask \
+    opencv-python-headless \
+    numpy \
+    requests \
+    werkzeug \
+    pillow
+
+# Copy application code
+COPY . .
+
+# Create necessary directories
+RUN mkdir -p uploads results family_data static
+
+# Set environment variables
+ENV FLASK_APP=enhanced_app.py
+ENV FLASK_ENV=production
+ENV PORT=8000
+ENV PYTHONPATH=/app
+
+# Expose port
+EXPOSE 8000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD curl -f http://localhost:8000/ || exit 1
+
+# Start the beautiful family platform
+CMD ["python", "enhanced_app.py"]
