@@ -627,7 +627,7 @@ class AnalyticsCache(Base):
     
     # Cache data
     data = Column(JSONB, nullable=False)
-    metadata = Column(JSONB, default=dict)
+    cache_metadata = Column(JSONB, default=dict)  # This is already correctly named to avoid conflict with SQLAlchemy's reserved 'metadata' attribute
     
     # Cache management
     user_id = Column(UUID(as_uuid=True), ForeignKey('users.id'))
@@ -637,4 +637,4 @@ class AnalyticsCache(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     expires_at = Column(DateTime(timezone=True), nullable=False, index=True)
     accessed_at = Column(DateTime(timezone=True))
-    access_count = Column(Integer, default=0) 
+    access_count = Column(Integer, default=0)

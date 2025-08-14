@@ -23,8 +23,8 @@ def check_dependencies():
 def start_api_server():
     """Start the unified API server"""
     print("🚀 Starting Elmowafiplatform API Server...")
-    print("📡 Server will be available at: http://localhost:8001")
-    print("📚 API Documentation: http://localhost:8001/docs")
+    print("📡 Server will be available at: http://localhost:8000")
+    print("📚 API Documentation: http://localhost:8000/docs")
     print("🔄 Auto-reload enabled for development")
     print("\n" + "="*50)
     
@@ -33,7 +33,7 @@ def start_api_server():
         uvicorn.run(
             "main:app",
             host="0.0.0.0",
-            port=8001,
+            port=8000,
             reload=True,
             log_level="info"
         )
@@ -50,7 +50,7 @@ def print_startup_instructions():
     print()
     print("1. 🖥️  API Server (This Terminal):")
     print("   - Starting automatically...")
-    print("   - Available at: http://localhost:8001")
+    print("   - Available at: http://localhost:8000")
     print()
     print("2. 🌐 React Frontend (New Terminal):")
     print("   cd elmowafy-travels-oasis/")
@@ -89,4 +89,4 @@ if __name__ == "__main__":
     script_dir = Path(__file__).parent
     os.chdir(script_dir)
     
-    start_api_server() 
+    start_api_server()

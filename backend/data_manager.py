@@ -26,7 +26,11 @@ class DataManager:
     
     def get_family_members(self) -> List[Dict[str, Any]]:
         """Get all family members"""
-        return self.db.get_family_members()
+        try:
+            return self.db.get_family_members()
+        except Exception as e:
+            logger.error(f"Error getting family members: {e}")
+            return []
     
     def get_memories(self) -> List[Dict[str, Any]]:
         """Get all memories"""
@@ -641,4 +645,222 @@ For support, contact: support@familyplatform.com
             "deleted_backups": deleted_backups,
             "remaining_exports": len(exports) - deleted_exports,
             "remaining_backups": len(backups) - deleted_backups
-        } 
+        }
+
+    # === NEW API INTEGRATION METHODS ===
+    
+    async def create_family_member(self, member_data: Dict[str, Any]) -> str:
+        """Create a new family member"""
+        try:
+            member_id = self.db.create_family_member(member_data)
+            logger.info(f"Created family member: {member_id}")
+            return member_id
+        except Exception as e:
+            logger.error(f"Error creating family member: {e}")
+            raise
+
+    async def update_family_member(self, member_id: str, updates: Dict[str, Any]) -> bool:
+        """Update a family member"""
+        try:
+            success = self.db.update_family_member(member_id, updates)
+            logger.info(f"Updated family member: {member_id}")
+            return success
+        except Exception as e:
+            logger.error(f"Error updating family member: {e}")
+            raise
+
+    async def get_memories(self, family_member_id: str = None, start_date: str = None, 
+                          end_date: str = None, tags: List[str] = None) -> List[Dict[str, Any]]:
+        """Get memories with optional filters"""
+        try:
+            # Build filters dict for database method
+            filters = {}
+            if family_member_id:
+                filters["familyMemberId"] = family_member_id
+            if start_date:
+                filters["startDate"] = start_date
+            if end_date:
+                filters["endDate"] = end_date
+            if tags:
+                filters["tags"] = tags
+            
+            return self.db.get_memories(filters if filters else None)
+        except Exception as e:
+            logger.error(f"Error getting memories: {e}")
+            return []
+
+    async def create_memory(self, memory_data: Dict[str, Any]) -> str:
+        """Create a new memory"""
+        try:
+            memory_id = self.db.create_memory(memory_data)
+            logger.info(f"Created memory: {memory_id}")
+            return memory_id
+        except Exception as e:
+            logger.error(f"Error creating memory: {e}")
+            raise
+
+    async def update_memory(self, memory_id: str, updates: Dict[str, Any]) -> bool:
+        """Update a memory"""
+        try:
+            success = self.db.update_memory(memory_id, updates)
+            logger.info(f"Updated memory: {memory_id}")
+            return success
+        except Exception as e:
+            logger.error(f"Error updating memory: {e}")
+            raise
+
+    async def save_uploaded_file(self, file, category: str = "uploads") -> Path:
+        """Save an uploaded file and return the path"""
+        try:
+            # Create category directory
+            upload_dir = self.data_dir / category
+            upload_dir.mkdir(exist_ok=True)
+            
+            # Generate unique filename
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"{timestamp}_{file.filename}"
+            file_path = upload_dir / filename
+            
+            # Save file
+            with open(file_path, "wb") as buffer:
+                content = await file.read()
+                buffer.write(content)
+            
+            logger.info(f"Saved uploaded file: {file_path}")
+            return file_path
+            
+        except Exception as e:
+            logger.error(f"Error saving uploaded file: {e}")
+            raise
+
+    async def get_memory_suggestions(self, date: str = None, family_member: str = None) -> Dict[str, Any]:
+        """Get smart memory suggestions"""
+        try:
+            # For now, return mock data - in real implementation this would use AI
+            suggestions = {
+                "on_this_day": [],
+                "similar_memories": [],
+                "family_connections": [],
+                "contextual_suggestions": [
+                    "Upload more photos from recent family gatherings",
+                    "Add location tags to memories for better organization",
+                    "Consider creating a travel plan for upcoming holidays"
+                ]
+            }
+            
+            # Get some actual memories if available
+            try:
+                memories = self.db.get_memories()
+                if memories:
+                    suggestions["similar_memories"] = memories[:3]
+            except Exception as e:
+                logger.error(f"Error getting memories for suggestions: {e}")
+                # Keep default empty suggestions
+            
+            return suggestions
+        except Exception as e:
+            logger.error(f"Error getting memory suggestions: {e}")
+            raise
+
+    async def get_memory_timeline(self, limit: int = 50, offset: int = 0, 
+                                family_member: str = None, date_from: str = None, 
+                                date_to: str = None) -> List[Dict[str, Any]]:
+        """Get AI-organized memory timeline"""
+        try:
+            # Build filters for database query
+            filters = {}
+            if family_member:
+                filters["familyMemberId"] = family_member
+            if date_from:
+                filters["startDate"] = date_from
+            if date_to:
+                filters["endDate"] = date_to
+            
+            memories = self.db.get_memories(filters if filters else None)
+            
+            # Sort by date and apply pagination
+            sorted_memories = sorted(memories, key=lambda x: x.get('date', ''), reverse=True)
+            return sorted_memories[offset:offset + limit]
+            
+        except Exception as e:
+            logger.error(f"Error getting memory timeline: {e}")
+            raise
+
+    async def search_memories(self, query: str, filters: Dict[str, Any] = None) -> List[Dict[str, Any]]:
+        """Search memories with AI-enhanced results"""
+        try:
+            # Simple text search for now - can be enhanced with AI
+            all_memories = self.db.get_memories()
+            
+            if not query:
+                return all_memories
+            
+            # Basic text search in title and description
+            query_lower = query.lower()
+            results = []
+            
+            for memory in all_memories:
+                if (query_lower in memory.get('title', '').lower() or 
+                    query_lower in memory.get('description', '').lower() or
+                    any(query_lower in tag.lower() for tag in memory.get('tags', []))):
+                    results.append(memory)
+            
+            return results
+            
+        except Exception as e:
+            logger.error(f"Error searching memories: {e}")
+            raise
+
+    async def get_travel_recommendations(self, budget: str = None, duration: str = None, 
+                                       interests: List[str] = None) -> Dict[str, Any]:
+        """Get AI travel recommendations"""
+        try:
+            # Mock travel recommendations - in real implementation this would use AI
+            recommendations = {
+                "suggestions": [
+                    {
+                        "destination": "Dubai, UAE",
+                        "reason": "Perfect for family activities with modern attractions and cultural experiences",
+                        "activities": ["Burj Khalifa", "Dubai Mall", "Desert Safari", "Palm Jumeirah"],
+                        "estimated_budget": budget or "$2000-3000",
+                        "family_friendly": True
+                    },
+                    {
+                        "destination": "Istanbul, Turkey",
+                        "reason": "Rich cultural heritage with amazing food and historical sites",
+                        "activities": ["Hagia Sophia", "Grand Bazaar", "Bosphorus Cruise", "Turkish Bath"],
+                        "estimated_budget": budget or "$1500-2500",
+                        "family_friendly": True
+                    }
+                ],
+                "reasoning": "Based on family-friendly destinations with cultural significance",
+                "confidence": 0.85,
+                "family_context": {
+                    "visited_locations": 0,
+                    "preferred_activities": interests or ["culture", "adventure", "food"]
+                }
+            }
+            
+            return recommendations
+            
+        except Exception as e:
+            logger.error(f"Error getting travel recommendations: {e}")
+            raise
+
+    async def create_travel_plan(self, plan_data: Dict[str, Any]) -> str:
+        """Create a travel plan"""
+        try:
+            plan_id = self.db.create_travel_plan(plan_data)
+            logger.info(f"Created travel plan: {plan_id}")
+            return plan_id
+        except Exception as e:
+            logger.error(f"Error creating travel plan: {e}")
+            raise
+
+    async def get_travel_plans(self, family_member_id: str = None) -> List[Dict[str, Any]]:
+        """Get travel plans"""
+        try:
+            return self.db.get_travel_plans(family_member_id=family_member_id)
+        except Exception as e:
+            logger.error(f"Error getting travel plans: {e}")
+            raise

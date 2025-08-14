@@ -9,7 +9,7 @@ import json
 def test_memory_suggestions():
     """Test memory suggestions endpoint with detailed error reporting"""
     
-    url = "http://localhost:8001/api/memories/suggestions"
+    url = "http://localhost:8000/api/memories/suggestions"
     
     try:
         print("Testing memory suggestions endpoint...")
@@ -43,7 +43,7 @@ def test_memory_suggestions():
 def test_chat_endpoint():
     """Test AI chat endpoint"""
     
-    url = "http://localhost:8001/api/chat/family-assistant"
+    url = "http://localhost:8000/api/chat/family-assistant"
     
     payload = {
         "message": "Hello test",

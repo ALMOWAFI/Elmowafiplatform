@@ -14,7 +14,7 @@ from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.pool import StaticPool, QueuePool
 from sqlalchemy.engine import Engine
 
-from database_models import Base
+from backend.database_models import Base
 
 class DatabaseConfig:
     """Production-ready database configuration"""
@@ -358,4 +358,4 @@ def get_db() -> Generator[Session, None, None]:
 
 def get_cache() -> CacheManager:
     """FastAPI dependency for cache manager"""
-    return cache_manager 
+    return cache_manager

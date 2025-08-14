@@ -7,7 +7,7 @@ import requests
 import json
 
 def test_integration():
-    base_url = "http://localhost:8001"
+    base_url = "http://localhost:8000"
     
     print("Testing Elmowafiplatform System Integration...\n")
     

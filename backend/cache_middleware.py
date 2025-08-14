@@ -16,7 +16,8 @@ from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response as StarletteResponse
 
-from redis_manager_simple import redis_manager
+from backend.redis_manager_simple import redis_manager
+
 import logging
 
 logger = logging.getLogger(__name__)

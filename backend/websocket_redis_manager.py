@@ -14,7 +14,7 @@ from enum import Enum
 
 from fastapi import WebSocket, WebSocketDisconnect
 import aioredis
-from redis_manager_simple import redis_manager
+from backend.redis_manager_simple import redis_manager
 
 logger = logging.getLogger(__name__)
 
