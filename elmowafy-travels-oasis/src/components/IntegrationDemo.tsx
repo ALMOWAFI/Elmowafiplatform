@@ -441,7 +441,7 @@ export const IntegrationDemo: React.FC = () => {
                       <h3 className={`font-medium ${isArabic ? 'font-noto' : ''}`}>
                         {isArabic ? 'خادم API' : 'API Server'}
                       </h3>
-                      <p className="text-sm text-muted-foreground">Port 8001</p>
+                      <p className="text-sm text-muted-foreground">Port 8000</p>
                     </div>
                     <div className="text-center p-4 border rounded-lg">
                       <div className="w-12 h-12 bg-purple-100 rounded-lg mx-auto mb-2 flex items-center justify-center">

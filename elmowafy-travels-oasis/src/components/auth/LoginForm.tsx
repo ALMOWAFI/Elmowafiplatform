@@ -1,196 +1,196 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Eye, EyeOff, LogIn, Mail, Lock } from 'lucide-react';
-import { authService } from '@/services/api';
+import { useAuth } from '../../context/AuthContext';
+import { Button } from '../ui/button';
+import { Input } from '../ui/input';
+import { Label } from '../ui/label';
+import { Card, CardHeader, CardTitle, CardContent } from '../ui/card';
+import { AlertCircle, Eye, EyeOff, Mail, Lock } from 'lucide-react';
+import { toast } from 'sonner';
 
 interface LoginFormProps {
-  onSuccess?: () => void;
-  onSwitchToRegister?: () => void;
+  onToggleMode: () => void;
 }
 
-export const LoginForm: React.FC<LoginFormProps> = ({ onSuccess, onSwitchToRegister }) => {
+export const LoginForm: React.FC<LoginFormProps> = ({ onToggleMode }) => {
+  const { login } = useAuth();
   const [formData, setFormData] = useState({
     email: '',
     password: '',
   });
+  const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  const navigate = useNavigate();
+  const [errors, setErrors] = useState<Record<string, string>>({});
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
-    if (error) setError('');
+  const validateForm = () => {
+    const newErrors: Record<string, string> = {};
+
+    if (!formData.email) {
+      newErrors.email = 'Email is required';
+    } else if (!/\S+@\S+\.\S+/.test(formData.email)) {
+      newErrors.email = 'Email is invalid';
+    }
+
+    if (!formData.password) {
+      newErrors.password = 'Password is required';
+    } else if (formData.password.length < 6) {
+      newErrors.password = 'Password must be at least 6 characters';
+    }
+
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.email || !formData.password) {
-      setError('Please fill in all fields');
+    
+    if (!validateForm()) {
       return;
     }
 
-    setLoading(true);
-    setError('');
-
+    setIsLoading(true);
     try {
-      await authService.login(formData);
-      if (onSuccess) {
-        onSuccess();
-      } else {
-        navigate('/dashboard');
-      }
-    } catch (err: any) {
-      setError(err.message || 'Login failed. Please check your credentials.');
+      await login(formData.email, formData.password);
+      toast.success('Welcome back! You have successfully logged in.');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Login failed');
     } finally {
-      setLoading(false);
+      setIsLoading(false);
     }
   };
 
-  const handleDemoLogin = async () => {
-    setFormData({
-      email: 'admin@elmowafiplatform.com',
-      password: 'admin123'
-    });
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const { name, value } = e.target;
+    setFormData(prev => ({
+      ...prev,
+      [name]: value
+    }));
     
-    setLoading(true);
-    try {
-      await authService.login({
-        email: 'admin@elmowafiplatform.com',
-        password: 'admin123'
-      });
-      if (onSuccess) {
-        onSuccess();
-      } else {
-        navigate('/dashboard');
-      }
-    } catch (err: any) {
-      setError(err.message || 'Demo login failed');
-    } finally {
-      setLoading(false);
+    // Clear error when user starts typing
+    if (errors[name]) {
+      setErrors(prev => ({
+        ...prev,
+        [name]: ''
+      }));
     }
   };
 
   return (
-    <Card className="w-full max-w-md mx-auto">
-      <CardHeader className="space-y-1">
-        <CardTitle className="text-2xl font-bold text-center">Welcome Back</CardTitle>
-        <CardDescription className="text-center">
-          Sign in to your family platform
-        </CardDescription>
+    <Card className="w-full max-w-md mx-auto shadow-2xl border-0 bg-white/95 backdrop-blur-sm">
+      <CardHeader className="space-y-1 pb-6">
+        <CardTitle className="text-3xl font-bold text-center text-gray-900">
+          Welcome Back
+        </CardTitle>
+        <p className="text-center text-gray-600">
+          Sign in to your Elmowafy Travels account
+        </p>
       </CardHeader>
-      <CardContent className="space-y-4">
-        <form onSubmit={handleSubmit} className="space-y-4">
+      
+      <CardContent>
+        <form onSubmit={handleSubmit} className="space-y-6">
+          {/* Email Field */}
           <div className="space-y-2">
-            <Label htmlFor="email">Email</Label>
+            <Label htmlFor="email" className="text-gray-700 font-medium">
+              Email Address
+            </Label>
             <div className="relative">
-              <Mail className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+              <Mail className="absolute left-3 top-3 h-5 w-5 text-gray-400" />
               <Input
                 id="email"
                 name="email"
                 type="email"
-                placeholder="Enter your email"
                 value={formData.email}
-                onChange={handleInputChange}
-                className="pl-10"
-                disabled={loading}
+                onChange={handleChange}
+                className={`pl-10 h-12 border-2 transition-colors ${
+                  errors.email 
+                    ? 'border-red-300 focus:border-red-500' 
+                    : 'border-gray-200 focus:border-blue-500'
+                }`}
+                placeholder="Enter your email"
+                disabled={isLoading}
               />
+              {errors.email && (
+                <div className="flex items-center mt-1 text-red-600 text-sm">
+                  <AlertCircle className="h-4 w-4 mr-1" />
+                  {errors.email}
+                </div>
+              )}
             </div>
           </div>
 
+          {/* Password Field */}
           <div className="space-y-2">
-            <Label htmlFor="password">Password</Label>
+            <Label htmlFor="password" className="text-gray-700 font-medium">
+              Password
+            </Label>
             <div className="relative">
-              <Lock className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+              <Lock className="absolute left-3 top-3 h-5 w-5 text-gray-400" />
               <Input
                 id="password"
                 name="password"
                 type={showPassword ? 'text' : 'password'}
-                placeholder="Enter your password"
                 value={formData.password}
-                onChange={handleInputChange}
-                className="pl-10 pr-10"
-                disabled={loading}
+                onChange={handleChange}
+                className={`pl-10 pr-10 h-12 border-2 transition-colors ${
+                  errors.password 
+                    ? 'border-red-300 focus:border-red-500' 
+                    : 'border-gray-200 focus:border-blue-500'
+                }`}
+                placeholder="Enter your password"
+                disabled={isLoading}
               />
-              <Button
+              <button
                 type="button"
-                variant="ghost"
-                size="sm"
-                className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
                 onClick={() => setShowPassword(!showPassword)}
-                disabled={loading}
+                className="absolute right-3 top-3 text-gray-400 hover:text-gray-600 transition-colors"
+                disabled={isLoading}
               >
                 {showPassword ? (
-                  <EyeOff className="h-4 w-4" />
+                  <EyeOff className="h-5 w-5" />
                 ) : (
-                  <Eye className="h-4 w-4" />
+                  <Eye className="h-5 w-5" />
                 )}
-              </Button>
+              </button>
+              {errors.password && (
+                <div className="flex items-center mt-1 text-red-600 text-sm">
+                  <AlertCircle className="h-4 w-4 mr-1" />
+                  {errors.password}
+                </div>
+              )}
             </div>
           </div>
 
-          {error && (
-            <Alert variant="destructive">
-              <AlertDescription>{error}</AlertDescription>
-            </Alert>
-          )}
-
-          <Button type="submit" className="w-full" disabled={loading}>
-            {loading ? (
-              <>
-                <div className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
-                Signing in...
-              </>
+          {/* Submit Button */}
+          <Button
+            type="submit"
+            className="w-full h-12 text-lg font-semibold bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-700 hover:to-cyan-700 transition-all duration-200"
+            disabled={isLoading}
+          >
+            {isLoading ? (
+              <div className="flex items-center">
+                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-2"></div>
+                Signing In...
+              </div>
             ) : (
-              <>
-                <LogIn className="mr-2 h-4 w-4" />
-                Sign In
-              </>
+              'Sign In'
             )}
           </Button>
+
+          {/* Toggle to Registration */}
+          <div className="text-center pt-4 border-t border-gray-200">
+            <p className="text-gray-600">
+              Don't have an account?{' '}
+              <button
+                type="button"
+                onClick={onToggleMode}
+                className="text-blue-600 hover:text-blue-700 font-semibold transition-colors"
+                disabled={isLoading}
+              >
+                Create Account
+              </button>
+            </p>
+          </div>
         </form>
-
-        <div className="relative">
-          <div className="absolute inset-0 flex items-center">
-            <span className="w-full border-t" />
-          </div>
-          <div className="relative flex justify-center text-xs uppercase">
-            <span className="bg-background px-2 text-muted-foreground">
-              Or try demo
-            </span>
-          </div>
-        </div>
-
-        <Button 
-          variant="outline" 
-          className="w-full" 
-          onClick={handleDemoLogin}
-          disabled={loading}
-        >
-          Demo Login (admin@elmowafiplatform.com)
-        </Button>
-
-        {onSwitchToRegister && (
-          <div className="text-center text-sm">
-            Don't have an account?{' '}
-            <Button
-              variant="link"
-              className="p-0 h-auto font-normal"
-              onClick={onSwitchToRegister}
-            >
-              Sign up here
-            </Button>
-          </div>
-        )}
       </CardContent>
     </Card>
   );
 };
-
-export default LoginForm; 

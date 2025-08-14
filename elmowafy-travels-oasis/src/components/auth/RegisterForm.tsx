@@ -1,253 +1,316 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Eye, EyeOff, UserPlus, Mail, Lock, User } from 'lucide-react';
-import { authService } from '@/services/api';
+import { useAuth } from '../../context/AuthContext';
+import { Button } from '../ui/button';
+import { Input } from '../ui/input';
+import { Label } from '../ui/label';
+import { Card, CardHeader, CardTitle, CardContent } from '../ui/card';
+import { AlertCircle, Eye, EyeOff, Mail, Lock, User } from 'lucide-react';
+import { toast } from 'sonner';
 
 interface RegisterFormProps {
-  onSuccess?: () => void;
-  onSwitchToLogin?: () => void;
+  onToggleMode: () => void;
 }
 
-export const RegisterForm: React.FC<RegisterFormProps> = ({ onSuccess, onSwitchToLogin }) => {
+export const RegisterForm: React.FC<RegisterFormProps> = ({ onToggleMode }) => {
+  const { register } = useAuth();
   const [formData, setFormData] = useState({
-    username: '',
+    name: '',
     email: '',
     password: '',
-    confirmPassword: '',
+    passwordConfirm: '',
   });
+  const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
-  const navigate = useNavigate();
-
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
-    if (error) setError('');
-    if (success) setSuccess('');
-  };
+  const [showPasswordConfirm, setShowPasswordConfirm] = useState(false);
+  const [errors, setErrors] = useState<Record<string, string>>({});
 
   const validateForm = () => {
-    if (!formData.username || !formData.email || !formData.password || !formData.confirmPassword) {
-      setError('Please fill in all fields');
-      return false;
+    const newErrors: Record<string, string> = {};
+
+    if (!formData.name) {
+      newErrors.name = 'Full name is required';
+    } else if (formData.name.length < 2) {
+      newErrors.name = 'Name must be at least 2 characters';
     }
 
-    if (formData.username.length < 3) {
-      setError('Username must be at least 3 characters long');
-      return false;
+    if (!formData.email) {
+      newErrors.email = 'Email is required';
+    } else if (!/\S+@\S+\.\S+/.test(formData.email)) {
+      newErrors.email = 'Email is invalid';
     }
 
-    if (!formData.email.includes('@')) {
-      setError('Please enter a valid email address');
-      return false;
+    if (!formData.password) {
+      newErrors.password = 'Password is required';
+    } else if (formData.password.length < 8) {
+      newErrors.password = 'Password must be at least 8 characters';
+    } else if (!/(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/.test(formData.password)) {
+      newErrors.password = 'Password must contain uppercase, lowercase, and number';
     }
 
-    if (formData.password.length < 6) {
-      setError('Password must be at least 6 characters long');
-      return false;
+    if (!formData.passwordConfirm) {
+      newErrors.passwordConfirm = 'Password confirmation is required';
+    } else if (formData.password !== formData.passwordConfirm) {
+      newErrors.passwordConfirm = 'Passwords do not match';
     }
 
-    if (formData.password !== formData.confirmPassword) {
-      setError('Passwords do not match');
-      return false;
-    }
-
-    return true;
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!validateForm()) return;
+    if (!validateForm()) {
+      return;
+    }
 
-    setLoading(true);
-    setError('');
-
+    setIsLoading(true);
     try {
-      await authService.register({
-        username: formData.username,
-        email: formData.email,
-        password: formData.password,
-      });
-      
-      setSuccess('Registration successful! You can now log in.');
-      
-      // Auto login after successful registration
-      setTimeout(async () => {
-        try {
-          await authService.login({
-            email: formData.email,
-            password: formData.password,
-          });
-          
-          if (onSuccess) {
-            onSuccess();
-          } else {
-            navigate('/dashboard');
-          }
-        } catch (loginError) {
-          // If auto-login fails, just switch to login form
-          if (onSwitchToLogin) {
-            onSwitchToLogin();
-          }
-        }
-      }, 1500);
-      
-    } catch (err: any) {
-      setError(err.message || 'Registration failed. Please try again.');
+      await register(formData.name, formData.email, formData.password, formData.passwordConfirm);
+      toast.success('Welcome to Elmowafy Travels! Your account has been created successfully.');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Registration failed');
     } finally {
-      setLoading(false);
+      setIsLoading(false);
     }
   };
 
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const { name, value } = e.target;
+    setFormData(prev => ({
+      ...prev,
+      [name]: value
+    }));
+    
+    // Clear error when user starts typing
+    if (errors[name]) {
+      setErrors(prev => ({
+        ...prev,
+        [name]: ''
+      }));
+    }
+  };
+
+  const getPasswordStrength = (password: string) => {
+    let strength = 0;
+    if (password.length >= 8) strength++;
+    if (/[a-z]/.test(password)) strength++;
+    if (/[A-Z]/.test(password)) strength++;
+    if (/\d/.test(password)) strength++;
+    if (/[^A-Za-z0-9]/.test(password)) strength++;
+    return strength;
+  };
+
+  const passwordStrength = getPasswordStrength(formData.password);
+  const strengthColors = ['bg-red-500', 'bg-orange-500', 'bg-yellow-500', 'bg-blue-500', 'bg-green-500'];
+  const strengthLabels = ['Very Weak', 'Weak', 'Fair', 'Good', 'Strong'];
+
   return (
-    <Card className="w-full max-w-md mx-auto">
-      <CardHeader className="space-y-1">
-        <CardTitle className="text-2xl font-bold text-center">Join Your Family</CardTitle>
-        <CardDescription className="text-center">
-          Create your account to access the family platform
-        </CardDescription>
+    <Card className="w-full max-w-md mx-auto shadow-2xl border-0 bg-white/95 backdrop-blur-sm">
+      <CardHeader className="space-y-1 pb-6">
+        <CardTitle className="text-3xl font-bold text-center text-gray-900">
+          Join Our Family
+        </CardTitle>
+        <p className="text-center text-gray-600">
+          Create your Elmowafy Travels account
+        </p>
       </CardHeader>
-      <CardContent className="space-y-4">
-        <form onSubmit={handleSubmit} className="space-y-4">
+      
+      <CardContent>
+        <form onSubmit={handleSubmit} className="space-y-6">
+          {/* Name Field */}
           <div className="space-y-2">
-            <Label htmlFor="username">Username</Label>
+            <Label htmlFor="name" className="text-gray-700 font-medium">
+              Full Name
+            </Label>
             <div className="relative">
-              <User className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+              <User className="absolute left-3 top-3 h-5 w-5 text-gray-400" />
               <Input
-                id="username"
-                name="username"
+                id="name"
+                name="name"
                 type="text"
-                placeholder="Choose a username"
-                value={formData.username}
-                onChange={handleInputChange}
-                className="pl-10"
-                disabled={loading}
+                value={formData.name}
+                onChange={handleChange}
+                className={`pl-10 h-12 border-2 transition-colors ${
+                  errors.name 
+                    ? 'border-red-300 focus:border-red-500' 
+                    : 'border-gray-200 focus:border-blue-500'
+                }`}
+                placeholder="Enter your full name"
+                disabled={isLoading}
               />
+              {errors.name && (
+                <div className="flex items-center mt-1 text-red-600 text-sm">
+                  <AlertCircle className="h-4 w-4 mr-1" />
+                  {errors.name}
+                </div>
+              )}
             </div>
           </div>
 
+          {/* Email Field */}
           <div className="space-y-2">
-            <Label htmlFor="email">Email</Label>
+            <Label htmlFor="email" className="text-gray-700 font-medium">
+              Email Address
+            </Label>
             <div className="relative">
-              <Mail className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+              <Mail className="absolute left-3 top-3 h-5 w-5 text-gray-400" />
               <Input
                 id="email"
                 name="email"
                 type="email"
-                placeholder="Enter your email"
                 value={formData.email}
-                onChange={handleInputChange}
-                className="pl-10"
-                disabled={loading}
+                onChange={handleChange}
+                className={`pl-10 h-12 border-2 transition-colors ${
+                  errors.email 
+                    ? 'border-red-300 focus:border-red-500' 
+                    : 'border-gray-200 focus:border-blue-500'
+                }`}
+                placeholder="Enter your email"
+                disabled={isLoading}
               />
+              {errors.email && (
+                <div className="flex items-center mt-1 text-red-600 text-sm">
+                  <AlertCircle className="h-4 w-4 mr-1" />
+                  {errors.email}
+                </div>
+              )}
             </div>
           </div>
 
+          {/* Password Field */}
           <div className="space-y-2">
-            <Label htmlFor="password">Password</Label>
+            <Label htmlFor="password" className="text-gray-700 font-medium">
+              Password
+            </Label>
             <div className="relative">
-              <Lock className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+              <Lock className="absolute left-3 top-3 h-5 w-5 text-gray-400" />
               <Input
                 id="password"
                 name="password"
                 type={showPassword ? 'text' : 'password'}
-                placeholder="Create a password"
                 value={formData.password}
-                onChange={handleInputChange}
-                className="pl-10 pr-10"
-                disabled={loading}
+                onChange={handleChange}
+                className={`pl-10 pr-10 h-12 border-2 transition-colors ${
+                  errors.password 
+                    ? 'border-red-300 focus:border-red-500' 
+                    : 'border-gray-200 focus:border-blue-500'
+                }`}
+                placeholder="Create a strong password"
+                disabled={isLoading}
               />
-              <Button
+              <button
                 type="button"
-                variant="ghost"
-                size="sm"
-                className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
                 onClick={() => setShowPassword(!showPassword)}
-                disabled={loading}
+                className="absolute right-3 top-3 text-gray-400 hover:text-gray-600 transition-colors"
+                disabled={isLoading}
               >
-                {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-              </Button>
+                {showPassword ? (
+                  <EyeOff className="h-5 w-5" />
+                ) : (
+                  <Eye className="h-5 w-5" />
+                )}
+              </button>
+              {formData.password && (
+                <div className="mt-2">
+                  <div className="flex space-x-1">
+                    {[...Array(5)].map((_, i) => (
+                      <div
+                        key={i}
+                        className={`h-2 flex-1 rounded ${
+                          i < passwordStrength ? strengthColors[passwordStrength - 1] : 'bg-gray-200'
+                        }`}
+                      />
+                    ))}
+                  </div>
+                  <p className="text-xs text-gray-600 mt-1">
+                    Password strength: {strengthLabels[passwordStrength - 1] || 'Too weak'}
+                  </p>
+                </div>
+              )}
+              {errors.password && (
+                <div className="flex items-center mt-1 text-red-600 text-sm">
+                  <AlertCircle className="h-4 w-4 mr-1" />
+                  {errors.password}
+                </div>
+              )}
             </div>
           </div>
 
+          {/* Password Confirmation Field */}
           <div className="space-y-2">
-            <Label htmlFor="confirmPassword">Confirm Password</Label>
+            <Label htmlFor="passwordConfirm" className="text-gray-700 font-medium">
+              Confirm Password
+            </Label>
             <div className="relative">
-              <Lock className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+              <Lock className="absolute left-3 top-3 h-5 w-5 text-gray-400" />
               <Input
-                id="confirmPassword"
-                name="confirmPassword"
-                type={showConfirmPassword ? 'text' : 'password'}
+                id="passwordConfirm"
+                name="passwordConfirm"
+                type={showPasswordConfirm ? 'text' : 'password'}
+                value={formData.passwordConfirm}
+                onChange={handleChange}
+                className={`pl-10 pr-10 h-12 border-2 transition-colors ${
+                  errors.passwordConfirm 
+                    ? 'border-red-300 focus:border-red-500' 
+                    : 'border-gray-200 focus:border-blue-500'
+                }`}
                 placeholder="Confirm your password"
-                value={formData.confirmPassword}
-                onChange={handleInputChange}
-                className="pl-10 pr-10"
-                disabled={loading}
+                disabled={isLoading}
               />
-              <Button
+              <button
                 type="button"
-                variant="ghost"
-                size="sm"
-                className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
-                onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                disabled={loading}
+                onClick={() => setShowPasswordConfirm(!showPasswordConfirm)}
+                className="absolute right-3 top-3 text-gray-400 hover:text-gray-600 transition-colors"
+                disabled={isLoading}
               >
-                {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-              </Button>
+                {showPasswordConfirm ? (
+                  <EyeOff className="h-5 w-5" />
+                ) : (
+                  <Eye className="h-5 w-5" />
+                )}
+              </button>
+              {errors.passwordConfirm && (
+                <div className="flex items-center mt-1 text-red-600 text-sm">
+                  <AlertCircle className="h-4 w-4 mr-1" />
+                  {errors.passwordConfirm}
+                </div>
+              )}
             </div>
           </div>
 
-          {error && (
-            <Alert variant="destructive">
-              <AlertDescription>{error}</AlertDescription>
-            </Alert>
-          )}
-
-          {success && (
-            <Alert>
-              <AlertDescription className="text-green-600">{success}</AlertDescription>
-            </Alert>
-          )}
-
-          <Button type="submit" className="w-full" disabled={loading}>
-            {loading ? (
-              <>
-                <div className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
-                Creating account...
-              </>
+          {/* Submit Button */}
+          <Button
+            type="submit"
+            className="w-full h-12 text-lg font-semibold bg-gradient-to-r from-green-600 to-blue-600 hover:from-green-700 hover:to-blue-700 transition-all duration-200"
+            disabled={isLoading}
+          >
+            {isLoading ? (
+              <div className="flex items-center">
+                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-2"></div>
+                Creating Account...
+              </div>
             ) : (
-              <>
-                <UserPlus className="mr-2 h-4 w-4" />
-                Create Account
-              </>
+              'Create Account'
             )}
           </Button>
-        </form>
 
-        {onSwitchToLogin && (
-          <div className="text-center text-sm">
-            Already have an account?{' '}
-            <Button
-              variant="link"
-              className="p-0 h-auto font-normal"
-              onClick={onSwitchToLogin}
-            >
-              Sign in here
-            </Button>
+          {/* Toggle to Login */}
+          <div className="text-center pt-4 border-t border-gray-200">
+            <p className="text-gray-600">
+              Already have an account?{' '}
+              <button
+                type="button"
+                onClick={onToggleMode}
+                className="text-blue-600 hover:text-blue-700 font-semibold transition-colors"
+                disabled={isLoading}
+              >
+                Sign In
+              </button>
+            </p>
           </div>
-        )}
+        </form>
       </CardContent>
     </Card>
   );
 };
-
-export default RegisterForm; 
