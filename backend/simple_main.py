@@ -17,6 +17,8 @@ from fastapi import FastAPI, File, UploadFile, HTTPException, Form, WebSocket, W
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+import aiohttp
+import aiofiles
 
 # Railway deployment configuration
 PORT = int(os.environ.get("PORT", 8001))
@@ -306,6 +308,108 @@ async def get_budget_profiles():
 
 logger.info("Budget endpoints added directly to main app")
 logger.info(f"Loaded {len(envelopes_db)} envelopes and {len(transactions_db)} transactions")
+
+# AI Service Integration
+AI_SERVICE_URL = "http://localhost:5000"
+
+class AIServiceProxy:
+    def __init__(self):
+        self.session = None
+        
+    async def _get_session(self):
+        if self.session is None:
+            self.session = aiohttp.ClientSession()
+        return self.session
+        
+    async def close(self):
+        if self.session:
+            await self.session.close()
+            
+ai_proxy = AIServiceProxy()
+
+# AI endpoints
+@app.post("/api/v1/upload")
+async def upload_photo(file: UploadFile = File(...), memory_id: Optional[str] = Form(None)):
+    """Upload photo with AI analysis"""
+    try:
+        # Save file locally
+        file_path = UPLOAD_DIR / f"{str(uuid.uuid4())}_{file.filename}"
+        async with aiofiles.open(file_path, 'wb') as f:
+            content = await file.read()
+            await f.write(content)
+        
+        # Call AI service for analysis
+        session = await ai_proxy._get_session()
+        data = aiohttp.FormData()
+        data.add_field('file', content, filename=file.filename, content_type=file.content_type)
+        
+        async with session.post(f"{AI_SERVICE_URL}/api/memory/upload-photo", data=data) as response:
+            if response.status == 200:
+                ai_result = await response.json()
+                result = {
+                    "id": str(uuid.uuid4()),
+                    "filename": file.filename,
+                    "file_path": str(file_path),
+                    "ai_analysis": ai_result,
+                    "upload_time": datetime.now().isoformat()
+                }
+                logger.info(f"Photo uploaded and analyzed: {file.filename}")
+                return {"status": "success", "data": result}
+            else:
+                # Fallback if AI service unavailable
+                result = {
+                    "id": str(uuid.uuid4()),
+                    "filename": file.filename,
+                    "file_path": str(file_path),
+                    "ai_analysis": {"status": "AI service unavailable", "message": "Photo saved, analysis pending"},
+                    "upload_time": datetime.now().isoformat()
+                }
+                return {"status": "success", "data": result}
+                
+    except Exception as e:
+        logger.error(f"Error uploading photo: {e}")
+        return {"status": "error", "message": str(e)}
+
+@app.get("/api/v1/ai/health")
+async def ai_health_check():
+    """Check AI service health"""
+    try:
+        session = await ai_proxy._get_session()
+        async with session.get(f"{AI_SERVICE_URL}/api/health") as response:
+            if response.status == 200:
+                ai_health = await response.json()
+                return {"status": "connected", "ai_service": ai_health}
+            else:
+                return {"status": "disconnected", "message": "AI service not responding"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+@app.post("/api/v1/ai/analyze")
+async def analyze_image(file: UploadFile = File(...)):
+    """Direct image analysis endpoint"""
+    try:
+        content = await file.read()
+        session = await ai_proxy._get_session()
+        data = aiohttp.FormData()
+        data.add_field('file', content, filename=file.filename, content_type=file.content_type)
+        
+        async with session.post(f"{AI_SERVICE_URL}/api/memory/upload-photo", data=data) as response:
+            if response.status == 200:
+                result = await response.json()
+                return {"status": "success", "analysis": result}
+            else:
+                return {"status": "error", "message": "AI analysis failed"}
+                
+    except Exception as e:
+        logger.error(f"Error in AI analysis: {e}")
+        return {"status": "error", "message": str(e)}
+
+logger.info("AI integration endpoints added")
+logger.info(f"AI service configured at: {AI_SERVICE_URL}")
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    await ai_proxy.close()
 
 if __name__ == "__main__":
     uvicorn.run(app, host=HOST, port=PORT)
